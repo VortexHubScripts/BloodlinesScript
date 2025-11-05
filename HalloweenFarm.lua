@@ -431,15 +431,14 @@ local function waitForItemsNearPlayer()
     local itemDetected = checkForItemsNearPlayer()
     
     if itemDetected then
-        print("[Halloween Farm] Item already exists! Waiting 2 seconds before moving to next pumpkin...")
+        print("[Halloween Farm] Item already exists! Moving to next pumpkin immediately...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
                 Title = "Halloween Farm",
-                Text = "Item found! Moving to next pumpkin in 2s...",
+                Text = "Item found! Moving to next pumpkin...",
                 Duration = 2
             })
         end
-        wait(2)
         return true, true -- Return true for items spawned, true for item detected
     end
     
@@ -456,27 +455,26 @@ local function waitForItemsNearPlayer()
         itemDetected = checkForItemsNearPlayer()
         
         if itemDetected then
-            print("[Halloween Farm] Item spawned! Waiting 2 seconds before moving to next pumpkin...")
+            print("[Halloween Farm] Item spawned! Moving to next pumpkin immediately...")
             if _G.NotificationLib then
                 _G.NotificationLib:MakeNotification({
                     Title = "Halloween Farm",
-                    Text = "Item spawned! Moving to next pumpkin in 2s...",
+                    Text = "Item spawned! Moving to next pumpkin...",
                     Duration = 2
                 })
             end
-            wait(2)
             return true, true -- Return true for items spawned, true for item detected
         end
         
-        wait(0.5)
+        wait(0.1) -- Reduced from 0.5 to 0.1 for faster detection
     end
     
     if not itemDetected then
-        print("[Halloween Farm] No items detected after 6 seconds. Moving to next pumpkin...")
+        print("[Halloween Farm] No items detected after 6 seconds. Moving to next pumpkin immediately...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
                 Title = "Halloween Farm",
-                Text = "No items after 6s, moving to next pumpkin...",
+                Text = "No items, moving to next pumpkin...",
                 Duration = 2
             })
         end
@@ -950,7 +948,7 @@ local function startHalloweenFarm()
                 local safeSpotConnection = constantTeleportToSafeSpot()
                 table.insert(halloweenFarmConnections, safeSpotConnection)
                 
-                wait(3)
+                wait(1) -- Reduced from 3 seconds to 1 second
                 
                 if safeSpotConnection then
                     safeSpotConnection:Disconnect()

@@ -202,18 +202,27 @@ end
 local function performServerHop()
     print("[Halloween Farm] Initiating fast server hop...")
     
+    -- IMPROVED: Check if player is in danger and wait until safe
     if getInDanger() then
-        print("[Halloween Farm] Player is in combat! Waiting until safe...")
+        print("[Halloween Farm] Player is in combat! Teleporting to safe spot and waiting...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
                 Title = "Halloween Farm",
-                Text = "In combat! Waiting to be safe before server hop...",
+                Text = "In combat! Going to safe spot...",
                 Duration = 3
             })
         end
         
+        -- Teleport to safe spot immediately
+        local playerData = getPlayerData()
+        local rootPart = playerData and playerData.rootPart
+        if rootPart then
+            rootPart.CFrame = CFrame.new(SAFE_SPOT)
+        end
+        
+        -- Wait until out of danger
         while getInDanger() do
-            wait(1)
+            wait(0.5)
             print("[Halloween Farm] Still in combat, waiting...")
         end
         
@@ -225,6 +234,9 @@ local function performServerHop()
                 Duration = 3
             })
         end
+        
+        -- Wait an additional 1 second to ensure we're fully safe
+        wait(1)
     end
     
     local maxAttempts = 5
@@ -439,13 +451,13 @@ local function waitForItemsNearPlayer()
                 Duration = 2
             })
         end
-        return true, true -- Return true for items spawned, true for item detected
+        return true, true
     end
     
     print("[Halloween Farm] No existing items. Monitoring ItemESP for new spawns...")
     
     local checkStartTime = tick()
-    local maxWaitTime = 6 -- Changed from 15 to 6 seconds
+    local maxWaitTime = 6
     
     while not itemDetected and (tick() - checkStartTime) < maxWaitTime do
         if not getgenv().HalloweenFarmSettings.Enabled then
@@ -463,10 +475,10 @@ local function waitForItemsNearPlayer()
                     Duration = 2
                 })
             end
-            return true, true -- Return true for items spawned, true for item detected
+            return true, true
         end
         
-        wait(0.1) -- Reduced from 0.5 to 0.1 for faster detection
+        wait(0.1)
     end
     
     if not itemDetected then
@@ -480,7 +492,7 @@ local function waitForItemsNearPlayer()
         end
     end
     
-    return true, itemDetected -- Return true to continue, and whether items were detected
+    return true, itemDetected
 end
 
 -- Helper function to check if player has Treat Basket equipped
@@ -813,7 +825,6 @@ local function farmPumpkinPoint(pumpkin, healthThresholdType)
                     
                     break
                 else
-                    -- No items spawned after 6 seconds, just move to next pumpkin
                     print("[Halloween Farm] No items spawned, moving to next pumpkin...")
                     break
                 end
@@ -922,7 +933,7 @@ local function startHalloweenFarm()
                                 if getgenv().HalloweenFarmSettings.FarmPumpkins then
                                     local farmSuccess, newThresholdType = farmPumpkinPoint(pumpkin, healthThresholdType)
                                     healthThresholdType = newThresholdType or healthThresholdType
-                                    wait(1)
+                                    wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
                                 end
                             else
                                 print("[Halloween Farm] Player still nearby pumpkin, skipping...")
@@ -944,15 +955,41 @@ local function startHalloweenFarm()
                     })
                 end
                 
-                print("[Halloween Farm] Moving to safe spot before server hop...")
-                local safeSpotConnection = constantTeleportToSafeSpot()
-                table.insert(halloweenFarmConnections, safeSpotConnection)
-                
-                wait(1) -- Reduced from 3 seconds to 1 second
-                
-                if safeSpotConnection then
-                    safeSpotConnection:Disconnect()
+                -- IMPROVED: Check if in danger before moving to safe spot
+                if getInDanger() then
+                    print("[Halloween Farm] Player in danger! Waiting to be safe before server hop...")
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "In combat! Waiting to be safe...",
+                            Duration = 3
+                        })
+                    end
+                    
+                    -- Wait until out of danger
+                    while getInDanger() do
+                        wait(0.5)
+                        print("[Halloween Farm] Still in danger, waiting...")
+                    end
+                    
+                    print("[Halloween Farm] Out of danger! Proceeding to safe spot...")
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "Out of combat! Moving to safe spot...",
+                            Duration = 3
+                        })
+                    end
                 end
+                
+                print("[Halloween Farm] Moving to safe spot before server hop...")
+                local playerData = getPlayerData()
+                local rootPart = playerData and playerData.rootPart
+                if rootPart then
+                    rootPart.CFrame = CFrame.new(SAFE_SPOT)
+                end
+                
+                wait(0.5) -- OPTIMIZED: Reduced from 1 second to 0.5 seconds
                 
                 if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
                     performServerHop()
@@ -977,16 +1014,16 @@ local function startHalloweenFarm()
                 if posKey then
                     blacklistedPumpkins[posKey] = true
                 end
-                wait(1)
+                wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
                 continue
             end
             
             if getgenv().HalloweenFarmSettings.FarmPumpkins then
                 local farmSuccess, newThresholdType = farmPumpkinPoint(nearestPumpkin, healthThresholdType)
                 healthThresholdType = newThresholdType or healthThresholdType
-                wait(1)
+                wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
             else
-                wait(1)
+                wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
             end
         end
         

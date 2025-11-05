@@ -198,9 +198,9 @@ local function constantTeleportToSafeSpot()
     return safeSpotConnection
 end
 
--- Function to server hop
+-- Function to server hop with retry logic
 local function performServerHop()
-    print("[Halloween Farm] Initiating server hop...")
+    print("[Halloween Farm] Initiating fast server hop...")
     
     if getInDanger() then
         print("[Halloween Farm] Player is in combat! Waiting until safe...")
@@ -227,78 +227,115 @@ local function performServerHop()
         end
     end
     
-    wait(2)
+    local maxAttempts = 5
+    local currentAttempt = 0
     
-    local success, err = pcall(function()
-        local playerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
-        local clientGui = playerGui:WaitForChild("ClientGui", 5)
+    while currentAttempt < maxAttempts do
+        currentAttempt = currentAttempt + 1
+        print(string.format("[Halloween Farm] Server hop attempt %d/%d", currentAttempt, maxAttempts))
         
-        local list
-        local mainframe = clientGui:FindFirstChild("Mainframe")
-        
-        if mainframe then
-            local rest = mainframe:FindFirstChild("Rest")
-            if rest then
-                local serverList = rest:FindFirstChild("ServerList")
-                if serverList then
-                    local backdrop = serverList:FindFirstChild("BackDrop")
-                    if backdrop then
-                        list = backdrop:FindFirstChild("List")
+        local success, err = pcall(function()
+            local playerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+            local clientGui = playerGui:WaitForChild("ClientGui", 5)
+            
+            local list
+            local mainframe = clientGui:FindFirstChild("Mainframe")
+            
+            if mainframe then
+                local rest = mainframe:FindFirstChild("Rest")
+                if rest then
+                    local serverList = rest:FindFirstChild("ServerList")
+                    if serverList then
+                        local backdrop = serverList:FindFirstChild("BackDrop")
+                        if backdrop then
+                            list = backdrop:FindFirstChild("List")
+                        end
                     end
                 end
             end
-        end
-        
-        if not list or #list:GetChildren() == 0 then
-            local menuScreen = clientGui:FindFirstChild("MenuScreen")
-            if menuScreen then
-                local serverList = menuScreen:FindFirstChild("ServerList")
-                if serverList then
-                    local backdrop = serverList:FindFirstChild("BackDrop")
-                    if backdrop then
-                        list = backdrop:FindFirstChild("List")
+            
+            if not list or #list:GetChildren() == 0 then
+                local menuScreen = clientGui:FindFirstChild("MenuScreen")
+                if menuScreen then
+                    local serverList = menuScreen:FindFirstChild("ServerList")
+                    if serverList then
+                        local backdrop = serverList:FindFirstChild("BackDrop")
+                        if backdrop then
+                            list = backdrop:FindFirstChild("List")
+                        end
                     end
                 end
             end
-        end
-        
-        if not list then return end
-        
-        local validServers = {}
-        
-        for _, frame in ipairs(list:GetChildren()) do
-            if frame:IsA("Frame") and frame.Name == "ServerTemplate" then
-                local playersLabel = frame:FindFirstChild("Players")
-                local joinButton = frame:FindFirstChild("JoinButton")
-                
-                if playersLabel and joinButton and joinButton:IsA("TextButton") then
-                    local playerText = playersLabel.Text
-                    local playerCount = tonumber(playerText:match("%d+"))
+            
+            if not list then return end
+            
+            local validServers = {}
+            
+            for _, frame in ipairs(list:GetChildren()) do
+                if frame:IsA("Frame") and frame.Name == "ServerTemplate" then
+                    local playersLabel = frame:FindFirstChild("Players")
+                    local joinButton = frame:FindFirstChild("JoinButton")
                     
-                    if playerCount and playerCount >= 10 then
-                        table.insert(validServers, {
-                            frame = frame,
-                            button = joinButton,
-                            playerCount = playerCount
-                        })
+                    if playersLabel and joinButton and joinButton:IsA("TextButton") then
+                        local playerText = playersLabel.Text
+                        local playerCount = tonumber(playerText:match("%d+"))
+                        
+                        if playerCount and playerCount >= 10 then
+                            table.insert(validServers, {
+                                frame = frame,
+                                button = joinButton,
+                                playerCount = playerCount
+                            })
+                        end
                     end
                 end
             end
+            
+            if #validServers == 0 then 
+                print("[Halloween Farm] No valid servers found")
+                return 
+            end
+            
+            local randomIndex = math.random(1, #validServers)
+            local selectedServer = validServers[randomIndex]
+            
+            print(string.format("[Halloween Farm] Attempting to join server with %d players...", selectedServer.playerCount))
+            
+            pcall(function()
+                for _, connection in pairs(getconnections(selectedServer.button.MouseButton1Click)) do
+                    connection:Fire()
+                end
+            end)
+        end)
+        
+        if not success then
+            warn("[Halloween Farm] Server hop attempt failed:", err)
         end
         
-        if #validServers == 0 then return end
+        -- Wait 2 seconds to see if teleport happens
+        wait(2)
         
-        local randomIndex = math.random(1, #validServers)
-        local selectedServer = validServers[randomIndex]
-        
-        task.wait(0.1)
-        
-        pcall(function()
-            for _, connection in pairs(getconnections(selectedServer.button.MouseButton1Click)) do
-                connection:Fire()
+        -- If we're still here after 2 seconds, the server was likely full
+        if currentAttempt < maxAttempts then
+            print("[Halloween Farm] Server likely full, retrying with different server...")
+            if _G.NotificationLib then
+                _G.NotificationLib:MakeNotification({
+                    Title = "Halloween Farm",
+                    Text = string.format("Server full! Retry %d/%d", currentAttempt + 1, maxAttempts),
+                    Duration = 2
+                })
             end
-        end)
-    end)
+        else
+            print("[Halloween Farm] Max server hop attempts reached")
+            if _G.NotificationLib then
+                _G.NotificationLib:MakeNotification({
+                    Title = "Halloween Farm",
+                    Text = "Failed to find available server after 5 attempts",
+                    Duration = 3
+                })
+            end
+        end
+    end
 end
 
 -- Function to check if any player is within distance of pumpkin
@@ -394,59 +431,58 @@ local function waitForItemsNearPlayer()
     local itemDetected = checkForItemsNearPlayer()
     
     if itemDetected then
-        print("[Halloween Farm] Item already exists! Waiting 3 seconds before moving to next pumpkin...")
+        print("[Halloween Farm] Item already exists! Waiting 2 seconds before moving to next pumpkin...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
                 Title = "Halloween Farm",
-                Text = "Item found! Moving to next pumpkin in 3s...",
-                Duration = 3
+                Text = "Item found! Moving to next pumpkin in 2s...",
+                Duration = 2
             })
         end
-        wait(3)
-        return true
+        wait(2)
+        return true, true -- Return true for items spawned, true for item detected
     end
     
     print("[Halloween Farm] No existing items. Monitoring ItemESP for new spawns...")
     
     local checkStartTime = tick()
-    local maxWaitTime = 15
+    local maxWaitTime = 6 -- Changed from 15 to 6 seconds
     
     while not itemDetected and (tick() - checkStartTime) < maxWaitTime do
         if not getgenv().HalloweenFarmSettings.Enabled then
-            return false
+            return false, false
         end
         
         itemDetected = checkForItemsNearPlayer()
         
         if itemDetected then
-            print("[Halloween Farm] Item spawned! Waiting 3 seconds before moving to next pumpkin...")
+            print("[Halloween Farm] Item spawned! Waiting 2 seconds before moving to next pumpkin...")
             if _G.NotificationLib then
                 _G.NotificationLib:MakeNotification({
                     Title = "Halloween Farm",
-                    Text = "Item spawned! Moving to next pumpkin in 3s...",
-                    Duration = 3
+                    Text = "Item spawned! Moving to next pumpkin in 2s...",
+                    Duration = 2
                 })
             end
-            wait(3)
-            return true
+            wait(2)
+            return true, true -- Return true for items spawned, true for item detected
         end
         
         wait(0.5)
     end
     
     if not itemDetected then
-        print("[Halloween Farm] No items detected. Moving to next pumpkin...")
+        print("[Halloween Farm] No items detected after 6 seconds. Moving to next pumpkin...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
                 Title = "Halloween Farm",
-                Text = "No items detected. Moving to next pumpkin...",
-                Duration = 3
+                Text = "No items after 6s, moving to next pumpkin...",
+                Duration = 2
             })
         end
-        wait(2)
     end
     
-    return true
+    return true, itemDetected -- Return true to continue, and whether items were detected
 end
 
 -- Helper function to check if player has Treat Basket equipped
@@ -673,9 +709,9 @@ local function farmPumpkinPoint(pumpkin, healthThresholdType)
         
         if pumpkinDestroyed then
             if getgenv().HalloweenFarmSettings.Enabled then
-                local itemsSpawned = waitForItemsNearPlayer()
+                local itemsSpawned, itemDetected = waitForItemsNearPlayer()
                 
-                if itemsSpawned then
+                if itemsSpawned and itemDetected then
                     print("[Halloween Farm] Items collected! Starting Treat Basket sequence...")
                     
                     local wasAutoEquipEnabled = getgenv().AutoEquipSettings and getgenv().AutoEquipSettings.Enabled
@@ -779,6 +815,8 @@ local function farmPumpkinPoint(pumpkin, healthThresholdType)
                     
                     break
                 else
+                    -- No items spawned after 6 seconds, just move to next pumpkin
+                    print("[Halloween Farm] No items spawned, moving to next pumpkin...")
                     break
                 end
             else

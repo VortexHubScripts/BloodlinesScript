@@ -457,7 +457,7 @@ local function waitForItemsNearPlayer()
     print("[Halloween Farm] No existing items. Monitoring ItemESP for new spawns...")
     
     local checkStartTime = tick()
-    local maxWaitTime = 6
+    local maxWaitTime = 10
     
     while not itemDetected and (tick() - checkStartTime) < maxWaitTime do
         if not getgenv().HalloweenFarmSettings.Enabled then

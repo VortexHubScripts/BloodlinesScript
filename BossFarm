@@ -37,7 +37,7 @@ local BOSS_CONFIGS = {
         farmHeight = 15,
         safeHeight = 25,
         dangerousAnimations = {
-            ["rbxassetid://10141233349"] = true
+            --["rbxassetid://10141233349"] = true
         },
         rewardsFolder = "ChakraKnightRewards",
         minPlayers = 10,

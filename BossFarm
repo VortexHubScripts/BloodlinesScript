@@ -1,0 +1,880 @@
+-- ============================================
+-- ENHANCED BOSS FARM SYSTEM V2
+-- ============================================
+
+local BossFarmSystem = {}
+BossFarmSystem.__index = BossFarmSystem
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+-- Constants
+local HEARTBEAT_INTERVAL = 0.05
+local ATTACK_INTERVAL = 0.7
+local ANIMATION_CHECK_INTERVAL = 0.1
+local BOSS_CHECK_INTERVAL = 5
+local REWARD_WAIT_TIME = 5
+local MAX_TRINKET_WAIT = 15
+local COLLECTION_ROUNDS = 2
+local GRIP_INTERVAL = 0.25
+local MAX_GRIP_ATTEMPTS = 15
+
+-- ============================================
+-- BOSS CONFIGURATIONS
+-- ============================================
+
+local BOSS_CONFIGS = {
+    ["Wooden Golem"] = {
+        modelNames = {"Wooden Golem"},
+        farmHeight = 15,
+        safeHeight = 30,
+        dangerousAnimations = {
+            ["rbxassetid://120758909308511"] = true,
+            ["rbxassetid://116907126244057"] = true
+        },
+        rewardsFolder = "WoodenGolemRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true
+    },
+    
+    ["Manda"] = {
+        modelNames = {"Manda"},
+        farmHeight = 13,
+        safeHeight = 55,
+        dangerousAnimations = {
+            ["rbxassetid://9954909571"] = true
+        },
+        rewardsFolder = "MandaRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true,
+        spawnLocation = Vector3.new(1528.703, -536.027, 736.648),
+        spawnRadius = 150,
+        spawnReference = "MandaSpawn",
+        maxSpawnWaitTime = 2
+    },
+    
+    ["Chakra Knight"] = {
+        modelNames = {"Chakra Knight", "Hallowed Chakra Knight"},
+        farmHeight = 15,
+        safeHeight = 25,
+        dangerousAnimations = {
+            ["rbxassetid://10141233349"] = true
+        },
+        rewardsFolder = "ChakraKnightRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true
+    },
+    
+    ["Tairock"] = {
+        modelNames = {"Tairock", "Hallowed Tairock"},
+        farmHeight = 11,
+        safeHeight = 30,
+        closeRangeHeight = 6,
+        dangerousAnimations = {},
+        closeRangeAnimations = {},
+        rewardsFolder = "TairockRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true,
+        proximitySearch = true,
+        searchRadius = 50,
+        searchReference = "TrinketSpawn1",
+        customRewardCollection = true,
+        rewardTeleportPos = Vector3.new(-120.965, -215.597, -1074.916),
+        preventVoidTP = true,
+        voidThreshold = -300,
+        maxPositionDelta = 100,
+        useGripOnDefeat = true,
+        trinketSpawnCount = 7
+    }
+}
+
+local SAFE_ZONE = Vector3.new(-2950.707, 321.173, -277.217)
+
+-- ============================================
+-- UTILITY FUNCTIONS
+-- ============================================
+
+local function getPlayerCharacter()
+    local player = Players.LocalPlayer
+    return player.Character or player.CharacterAdded:Wait()
+end
+
+local function getHumanoidRootPart(character)
+    return character:WaitForChild("HumanoidRootPart", 5)
+end
+
+local function teleportToPosition(hrp, position, lookAt)
+    if not hrp then return end
+    if lookAt then
+        hrp.CFrame = CFrame.new(position, lookAt)
+    else
+        hrp.CFrame = CFrame.new(position)
+    end
+end
+
+local function notify(title, text, duration)
+    if _G.NotificationLib then
+        _G.NotificationLib:MakeNotification({
+            Title = title,
+            Text = text,
+            Duration = duration or 3
+        })
+    end
+end
+
+local function findBossModel(config)
+    for _, modelName in ipairs(config.modelNames) do
+        local model = Workspace:FindFirstChild(modelName)
+        if model and model:IsA("Model") then
+            local humanoid = model:FindFirstChild("Humanoid")
+            local hrp = model:FindFirstChild("HumanoidRootPart")
+            if humanoid and humanoid.Health > 1 and hrp then
+                return model, humanoid, hrp
+            end
+        end
+    end
+    return nil, nil, nil
+end
+
+local function isInCombat()
+    return inDanger or false
+end
+
+-- ============================================
+-- BOSS FARM CLASS
+-- ============================================
+
+function BossFarmSystem.new()
+    local self = setmetatable({}, BossFarmSystem)
+    
+    self.settings = {
+        enabled = false,
+        selectedBosses = {},
+        serverHopOnChakraSense = false,
+        serverHopOnNoBoss = false
+    }
+    
+    self.state = {
+        running = false,
+        currentBoss = nil,
+        connections = {},
+        gui = nil,
+        thread = nil,
+        chakraSenseUser = nil
+    }
+    
+    return self
+end
+
+-- ============================================
+-- CHAKRA SENSE MONITORING
+-- ============================================
+
+function BossFarmSystem:setupChakraSenseMonitor()
+    local cooldownsFolder = ReplicatedStorage:FindFirstChild("Cooldowns")
+    if not cooldownsFolder then
+        warn("[Boss Farm] Cooldowns folder not found")
+        return
+    end
+    
+    local function monitorPlayer(playerFolder)
+        local connection = playerFolder.ChildAdded:Connect(function(child)
+            if child:IsA("NumberValue") and child.Name == "Chakra Sense" then
+                if self.settings.serverHopOnChakraSense and self.settings.enabled then
+                    self.state.chakraSenseUser = playerFolder.Name
+                    print("[Boss Farm] Chakra Sense detected from:", playerFolder.Name)
+                end
+            end
+        end)
+        table.insert(self.state.connections, connection)
+    end
+    
+    for _, playerFolder in ipairs(cooldownsFolder:GetChildren()) do
+        monitorPlayer(playerFolder)
+    end
+    
+    local newPlayerConn = cooldownsFolder.ChildAdded:Connect(monitorPlayer)
+    table.insert(self.state.connections, newPlayerConn)
+end
+
+-- ============================================
+-- BOSS FINDING LOGIC
+-- ============================================
+
+function BossFarmSystem:findManda(config)
+    local character = getPlayerCharacter()
+    local hrp = getHumanoidRootPart(character)
+    if not hrp then return nil, nil, nil end
+    
+    print("[Boss Farm] Teleporting to Manda spawn location...")
+    teleportToPosition(hrp, config.spawnLocation)
+    
+    local spawnRef = Workspace:FindFirstChild(config.spawnReference)
+    if not spawnRef then
+        warn("[Boss Farm] Manda spawn reference not found")
+        return nil, nil, nil
+    end
+    
+    print("[Boss Farm] Searching for Manda within", config.spawnRadius, "meters...")
+    local startTime = tick()
+    
+    while tick() - startTime < config.maxSpawnWaitTime do
+        for _, model in ipairs(Workspace:GetChildren()) do
+            if model.Name == config.modelNames[1] and model:IsA("Model") then
+                local humanoid = model:FindFirstChild("Humanoid")
+                local mandaHrp = model:FindFirstChild("HumanoidRootPart")
+                local worldBoss = model:FindFirstChild("WorldBoss")
+                
+                if humanoid and humanoid.Health > 1 and mandaHrp then
+                    local distance = (mandaHrp.Position - spawnRef.Position).Magnitude
+                    
+                    if distance <= config.spawnRadius then
+                        if not worldBoss or (worldBoss:IsA("BoolValue") and not worldBoss.Value) then
+                            print("[Boss Farm] Valid Manda found at", math.floor(distance), "meters")
+                            notify("Boss Farm", "Manda found! Starting farm...", 3)
+                            return model, humanoid, mandaHrp
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.1)
+    end
+    
+    print("[Boss Farm] Manda not found within", config.maxSpawnWaitTime, "seconds")
+    teleportToPosition(hrp, SAFE_ZONE)
+    notify("Boss Farm", "Manda not found - moved to safe zone", 3)
+    return nil, nil, nil
+end
+
+function BossFarmSystem:findTairock(config)
+    local rewardsFolder = Workspace:FindFirstChild(config.rewardsFolder)
+    if not rewardsFolder then
+        print("[Boss Farm] Tairock rewards folder not found")
+        return nil, nil, nil
+    end
+    
+    local searchRef = rewardsFolder:FindFirstChild(config.searchReference)
+    if not searchRef or not searchRef:IsA("BasePart") then
+        print("[Boss Farm] Tairock search reference not found")
+        return nil, nil, nil
+    end
+    
+    print("[Boss Farm] Searching for Tairock near", config.searchReference)
+    local searchPos = searchRef.Position
+    local closest = {model = nil, distance = math.huge}
+    
+    for _, modelName in ipairs(config.modelNames) do
+        for _, model in ipairs(Workspace:GetChildren()) do
+            if model.Name == modelName and model:IsA("Model") then
+                local humanoid = model:FindFirstChild("Humanoid")
+                local hrp = model:FindFirstChild("HumanoidRootPart")
+                
+                if humanoid and humanoid.Health > 1 and hrp then
+                    local distance = (hrp.Position - searchPos).Magnitude
+                    
+                    if distance <= config.searchRadius and distance < closest.distance then
+                        closest.model = model
+                        closest.distance = distance
+                        print(string.format("[Boss Farm] Found %s at %.1fm", modelName, distance))
+                    end
+                end
+            end
+        end
+    end
+    
+    if closest.model then
+        print(string.format("[Boss Farm] Selected %s (%.1fm from reference)", 
+            closest.model.Name, closest.distance))
+        return closest.model, 
+               closest.model:FindFirstChild("Humanoid"),
+               closest.model:FindFirstChild("HumanoidRootPart")
+    end
+    
+    print("[Boss Farm] No Tairock found within", config.searchRadius, "meters")
+    return nil, nil, nil
+end
+
+function BossFarmSystem:findAvailableBoss()
+    for bossName, _ in pairs(self.settings.selectedBosses) do
+        local config = BOSS_CONFIGS[bossName]
+        if not config then continue end
+        
+        if bossName == "Manda" then
+            return bossName, config, self:findManda(config)
+        elseif bossName == "Tairock" and config.proximitySearch then
+            return bossName, config, self:findTairock(config)
+        else
+            local boss, humanoid, hrp = findBossModel(config)
+            if boss then
+                return bossName, config, boss, humanoid, hrp
+            end
+        end
+    end
+    
+    return nil, nil, nil, nil, nil
+end
+
+-- ============================================
+-- REWARD COLLECTION
+-- ============================================
+
+function BossFarmSystem:collectTairockRewards(config, boss, bossHrp)
+    print("[Boss Farm] Starting Tairock reward collection...")
+    
+    local character = getPlayerCharacter()
+    local hrp = getHumanoidRootPart(character)
+    if not hrp then return end
+    
+    -- Grip sequence with safety checks
+    if config.useGripOnDefeat then
+        self.state.running = false
+        
+        for _, conn in ipairs(self.state.connections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        self.state.connections = {}
+        
+        task.wait(0.3)
+        
+        if boss and bossHrp then
+            local lastPos = bossHrp.Position
+            teleportToPosition(hrp, lastPos)
+            task.wait(0.2)
+            
+            for i = 1, MAX_GRIP_ATTEMPTS do
+                if not boss or not boss.Parent or not bossHrp or not bossHrp.Parent then
+                    print("[Boss Farm] Boss despawned - grip successful")
+                    break
+                end
+                
+                local currentPos = bossHrp.Position
+                local delta = (currentPos - lastPos).Magnitude
+                
+                if delta > config.maxPositionDelta then
+                    print("[Boss Farm] Boss moved too far - stopping grips")
+                    break
+                end
+                
+                if hrp.Position.Y < config.voidThreshold then
+                    print("[Boss Farm] Void detected - repositioning")
+                    teleportToPosition(hrp, lastPos)
+                    task.wait(0.2)
+                end
+                
+                teleportToPosition(hrp, currentPos)
+                pcall(function()
+                    ReplicatedStorage.Events.DataEvent:FireServer("Grip")
+                end)
+                
+                lastPos = currentPos
+                task.wait(GRIP_INTERVAL)
+            end
+        end
+    end
+    
+    -- Teleport to reward area
+    teleportToPosition(hrp, config.rewardTeleportPos)
+    notify("Boss Farm", "Moved to Tairock rewards area", 3)
+    
+    task.wait(REWARD_WAIT_TIME)
+    
+    -- Collect trinkets
+    local rewardsFolder = Workspace:FindFirstChild(config.rewardsFolder)
+    if not rewardsFolder then return end
+    
+    self:collectTrinkets(rewardsFolder, config.trinketSpawnCount)
+end
+
+function BossFarmSystem:collectUniversalRewards(config)
+    print("[Boss Farm] Starting universal reward collection...")
+    
+    local character = getPlayerCharacter()
+    local hrp = getHumanoidRootPart(character)
+    if not hrp then return end
+    
+    local rewardsFolder = Workspace:FindFirstChild(config.rewardsFolder)
+    if not rewardsFolder then
+        print("[Boss Farm] Rewards folder not found:", config.rewardsFolder)
+        return
+    end
+    
+    -- Teleport to first spawn point
+    local firstSpawn = rewardsFolder:FindFirstChild("TrinketSpawn1")
+    if firstSpawn then
+        teleportToPosition(hrp, firstSpawn.Position)
+        notify("Boss Farm", "Waiting for trinkets...", 3)
+    end
+    
+    task.wait(REWARD_WAIT_TIME)
+    
+    -- Wait for trinkets to spawn
+    local trinketFound = false
+    local startTime = tick()
+    
+    while not trinketFound and tick() - startTime < MAX_TRINKET_WAIT do
+        for i = 1, 7 do
+            local spawn = rewardsFolder:FindFirstChild("TrinketSpawn" .. i)
+            if spawn and spawn:FindFirstChild("Occupied") then
+                trinketFound = true
+                print("[Boss Farm] Trinket spawned at TrinketSpawn" .. i)
+                break
+            end
+        end
+        task.wait(0.5)
+    end
+    
+    if not trinketFound then
+        print("[Boss Farm] No trinkets spawned after", MAX_TRINKET_WAIT, "seconds")
+        notify("Boss Farm", "No trinkets found - moving on", 3)
+        return
+    end
+    
+    self:collectTrinkets(rewardsFolder, 7)
+end
+
+function BossFarmSystem:collectTrinkets(rewardsFolder, spawnCount)
+    local character = getPlayerCharacter()
+    local hrp = getHumanoidRootPart(character)
+    if not hrp then return end
+    
+    notify("Boss Farm", "Collecting trinkets...", 3)
+    
+    for round = 1, COLLECTION_ROUNDS do
+        print("[Boss Farm] Collection round", round, "/", COLLECTION_ROUNDS)
+        
+        for i = 1, spawnCount do
+            local spawn = rewardsFolder:FindFirstChild("TrinketSpawn" .. i)
+            if spawn and spawn:FindFirstChild("Occupied") then
+                teleportToPosition(hrp, spawn.Position)
+                task.wait(0.3)
+            end
+        end
+        
+        if round < COLLECTION_ROUNDS then
+            task.wait(1)
+        end
+    end
+    
+    print("[Boss Farm] Collection complete")
+    notify("Boss Farm", "Collection complete!", 3)
+    task.wait(3)
+end
+
+-- ============================================
+-- BOSS FARMING LOGIC
+-- ============================================
+
+function BossFarmSystem:createFarmingGUI(bossName, humanoid)
+    local player = Players.LocalPlayer
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "BossFarmingGui"
+    screenGui.ResetOnSpawn = false
+    screenGui.Parent = player:WaitForChild("PlayerGui")
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 250, 0, 80)
+    frame.Position = UDim2.new(0.5, -125, 0.05, 0)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    frame.BorderSizePixel = 2
+    frame.BorderColor3 = Color3.fromRGB(255, 255, 255)
+    frame.Parent = screenGui
+    
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "Farming: " .. bossName
+    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    titleLabel.TextScaled = true
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.Parent = frame
+    
+    local healthLabel = Instance.new("TextLabel")
+    healthLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    healthLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    healthLabel.BackgroundTransparency = 1
+    healthLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    healthLabel.TextScaled = true
+    healthLabel.Font = Enum.Font.GothamBold
+    healthLabel.Parent = frame
+    
+    local function updateHealth()
+        if humanoid then
+            healthLabel.Text = string.format("%.0f / %.0f", humanoid.Health, humanoid.MaxHealth)
+        end
+    end
+    
+    updateHealth()
+    local conn = humanoid.HealthChanged:Connect(updateHealth)
+    table.insert(self.state.connections, conn)
+    
+    return screenGui
+end
+
+function BossFarmSystem:farmBoss(bossName, config, boss, humanoid, hrp)
+    if self.state.running then return false end
+    
+    self.state.running = true
+    self.state.currentBoss = bossName
+    
+    print("[Boss Farm] Starting farm for:", bossName)
+    
+    local character = getPlayerCharacter()
+    local playerHrp = getHumanoidRootPart(character)
+    if not playerHrp then
+        self.state.running = false
+        return false
+    end
+    
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    local gui = self:createFarmingGUI(bossName, humanoid)
+    self.state.gui = gui
+    
+    -- State variables
+    local evading = false
+    local inCloseRange = false
+    
+    -- Position helpers
+    local function getFarmPos()
+        return hrp.Position + Vector3.new(0, config.farmHeight, 0)
+    end
+    
+    local function getSafePos()
+        return hrp.Position + Vector3.new(0, config.safeHeight, 0)
+    end
+    
+    local function getClosePos()
+        return hrp.Position + Vector3.new(0, config.closeRangeHeight or config.farmHeight, 0)
+    end
+    
+    -- Boss health check
+    local function checkAlive()
+        return boss and boss.Parent and humanoid and humanoid.Health > 1
+    end
+    
+    -- Animation monitoring
+    task.spawn(function()
+        while self.state.running and checkAlive() do
+            if animator then
+                for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                    local animId = track.Animation.AnimationId
+                    
+                    if config.dangerousAnimations[animId] then
+                        evading = true
+                        inCloseRange = false
+                        print("[Boss Farm] Evading dangerous animation")
+                        track.Stopped:Wait()
+                        task.wait(0.6)
+                        evading = false
+                    end
+                    
+                    if config.closeRangeAnimations and config.closeRangeAnimations[animId] then
+                        inCloseRange = true
+                        print("[Boss Farm] Close range mode activated")
+                        track.Stopped:Wait()
+                        inCloseRange = false
+                    end
+                end
+            end
+            task.wait(ANIMATION_CHECK_INTERVAL)
+        end
+    end)
+    
+    -- Attack loop
+    task.spawn(function()
+        while self.state.running and checkAlive() do
+            if not evading then
+                pcall(function()
+                    ReplicatedStorage.Events.DataEvent:FireServer("CheckMeleeHit", nil, "NormalAttack", false)
+                end)
+            end
+            task.wait(ATTACK_INTERVAL)
+        end
+    end)
+    
+    -- Void protection for Tairock
+    if config.preventVoidTP then
+        local voidConn = RunService.Heartbeat:Connect(function()
+            if playerHrp.Position.Y < config.voidThreshold then
+                print("[Boss Farm] Void detected - repositioning")
+                teleportToPosition(playerHrp, getFarmPos(), hrp.Position)
+            end
+        end)
+        table.insert(self.state.connections, voidConn)
+    end
+    
+    -- Main teleport loop
+    while self.state.running and checkAlive() do
+        local targetPos
+        
+        if evading then
+            targetPos = getSafePos()
+        elseif inCloseRange then
+            targetPos = getClosePos()
+        else
+            targetPos = getFarmPos()
+        end
+        
+        teleportToPosition(playerHrp, targetPos, hrp.Position)
+        RunService.Heartbeat:Wait()
+    end
+    
+    -- Boss defeated
+    print("[Boss Farm]", bossName, "defeated")
+    
+    if gui then
+        gui:Destroy()
+        self.state.gui = nil
+    end
+    
+    task.wait(2)
+    
+    -- Collect rewards
+    if config.customRewardCollection and bossName == "Tairock" then
+        self:collectTairockRewards(config, boss, hrp)
+    else
+        self:collectUniversalRewards(config)
+    end
+    
+    self.state.running = false
+    self.state.currentBoss = nil
+    
+    return true
+end
+
+-- ============================================
+-- SERVER HOP
+-- ============================================
+
+function BossFarmSystem:serverHop(reason)
+    print("[Boss Farm] Server hopping -", reason)
+    notify("Boss Farm", "Server hopping: " .. reason, 3)
+    
+    -- Go to safe zone if in combat
+    if isInCombat() then
+        local character = getPlayerCharacter()
+        local hrp = getHumanoidRootPart(character)
+        if hrp then
+            teleportToPosition(hrp, SAFE_ZONE)
+            
+            while isInCombat() do
+                print("[Boss Farm] Waiting for combat to end...")
+                task.wait(1)
+            end
+        end
+    end
+    
+    task.wait(2)
+    
+    pcall(function()
+        local player = Players.LocalPlayer
+        local playerGui = player:WaitForChild("PlayerGui")
+        local clientGui = playerGui:WaitForChild("ClientGui")
+        
+        local list
+        
+        -- Try finding server list
+        local paths = {
+            {"Mainframe", "Rest", "ServerList", "BackDrop", "List"},
+            {"MenuScreen", "ServerList", "BackDrop", "List"}
+        }
+        
+        for _, path in ipairs(paths) do
+            local current = clientGui
+            for _, name in ipairs(path) do
+                current = current:FindFirstChild(name)
+                if not current then break end
+            end
+            if current then
+                list = current
+                break
+            end
+        end
+        
+        if not list then
+            warn("[Boss Farm] Server list not found")
+            return
+        end
+        
+        -- Find valid servers
+        local validServers = {}
+        for _, frame in ipairs(list:GetChildren()) do
+            if frame:IsA("Frame") and frame.Name == "ServerTemplate" then
+                local playersLabel = frame:FindFirstChild("Players")
+                local joinBtn = frame:FindFirstChild("JoinButton")
+                
+                if playersLabel and joinBtn and joinBtn:IsA("TextButton") then
+                    local count = tonumber(playersLabel.Text:match("%d+"))
+                    if count and count >= 10 then
+                        table.insert(validServers, {
+                            button = joinBtn,
+                            players = count
+                        })
+                    end
+                end
+            end
+        end
+        
+        if #validServers == 0 then
+            warn("[Boss Farm] No valid servers found")
+            return
+        end
+        
+        -- Join random server
+        local selected = validServers[math.random(1, #validServers)]
+        print("[Boss Farm] Joining server with", selected.players, "players")
+        
+        task.wait(0.1)
+        
+        pcall(function()
+            for _, conn in pairs(getconnections(selected.button.MouseButton1Click)) do
+                conn:Fire()
+            end
+        end)
+    end)
+end
+
+-- ============================================
+-- MAIN LOOP
+-- ============================================
+
+function BossFarmSystem:start()
+    if self.state.thread then return end
+    
+    self:setupChakraSenseMonitor()
+    
+    self.state.thread = task.spawn(function()
+        while self.settings.enabled do
+            -- Check for Chakra Sense
+            if self.settings.serverHopOnChakraSense and self.state.chakraSenseUser then
+                self:serverHop("Chakra Sense used by " .. self.state.chakraSenseUser)
+                break
+            end
+            
+            -- Find and farm boss
+            local bossName, config, boss, humanoid, hrp = self:findAvailableBoss()
+            
+            if bossName and boss then
+                self:farmBoss(bossName, config, boss, humanoid, hrp)
+                task.wait(2)
+            else
+                -- No boss found
+                if self.settings.serverHopOnNoBoss then
+                    self:serverHop("No bosses found")
+                    break
+                else
+                    print("[Boss Farm] No bosses found - waiting...")
+                    notify("Boss Farm", "No bosses found - waiting...", 3)
+                    task.wait(BOSS_CHECK_INTERVAL)
+                end
+            end
+            
+            task.wait(1)
+        end
+    end)
+end
+
+function BossFarmSystem:stop()
+    self.state.running = false
+    self.state.currentBoss = nil
+    self.state.chakraSenseUser = nil
+    
+    for _, conn in ipairs(self.state.connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    self.state.connections = {}
+    
+    if self.state.gui then
+        self.state.gui:Destroy()
+        self.state.gui = nil
+    end
+    
+    if self.state.thread then
+        task.cancel(self.state.thread)
+        self.state.thread = nil
+    end
+    
+    print("[Boss Farm] Stopped")
+end
+
+-- ============================================
+-- UI SETUP
+-- ============================================
+
+local function setupUI(system, autoFarmBox)
+    local bossNames = {}
+    for name in pairs(BOSS_CONFIGS) do
+        table.insert(bossNames, name)
+    end
+    table.sort(bossNames)
+    
+    autoFarmBox:AddDropdown('BossSelection', {
+        Values = bossNames,
+        Default = 0,
+        Multi = true,
+        Text = 'Select Bosses',
+        Tooltip = 'Choose which bosses to farm',
+        Callback = function(value)
+            system.settings.selectedBosses = value
+        end
+    })
+    
+    autoFarmBox:AddToggle('ServerHopIfChakraSense', {
+        Text = 'Server Hop on Chakra Sense',
+        Default = false,
+        Tooltip = 'Server hop when ANY player uses Chakra Sense',
+        Callback = function(value)
+            system.settings.serverHopOnChakraSense = value
+        end
+    })
+    
+    autoFarmBox:AddToggle('ServerHopIfNoBoss', {
+        Text = 'Server Hop on No Boss',
+        Default = false,
+        Tooltip = 'Server hop when no selected bosses are found',
+        Callback = function(value)
+            system.settings.serverHopOnNoBoss = value
+        end
+    })
+    
+    autoFarmBox:AddToggle('BossFarmToggle', {
+        Text = 'Enable Boss Farm',
+        Default = false,
+        Tooltip = 'Automatically farm selected bosses',
+        Callback = function(value)
+            system.settings.enabled = value
+            
+            if value then
+                local count = 0
+                for _ in pairs(system.settings.selectedBosses) do
+                    count = count + 1
+                end
+                
+                if count == 0 then
+                    notify("Boss Farm", "Please select at least one boss!", 3)
+                    Toggles.BossFarmToggle:SetValue(false)
+                    return
+                end
+                
+                system:start()
+            else
+                system:stop()
+            end
+        end
+    })
+end
+
+-- ============================================
+-- INITIALIZATION
+-- ============================================
+
+getgenv().BossFarmSystem = BossFarmSystem.new()
+
+-- Setup UI (ready to use in your script)
+setupUI(getgenv().BossFarmSystem, AutoFarmBox)
+
+print("[Boss Farm] System V2 loaded successfully")
+return BossFarmSystem

@@ -871,10 +871,12 @@ end
 -- INITIALIZATION
 -- ============================================
 
-getgenv().BossFarmSystem = BossFarmSystem.new()
+local instance = BossFarmSystem.new()
+getgenv().BossFarmSystem = instance
 
--- Setup UI (ready to use in your script)
-setupUI(getgenv().BossFarmSystem, AutoFarmBox)
-
-print("[Boss Farm] System V2 loaded successfully")
-return BossFarmSystem
+-- Return both the class and the setupUI function so the main script can initialize the UI
+return {
+    BossFarmSystem = BossFarmSystem,
+    setupUI = setupUI,
+    instance = instance
+}

@@ -1,5 +1,5 @@
 -- ============================================
--- ENHANCED BOSS FARM SYSTEM V2
+-- ENHANCED BOSS FARM SYSTEM V3
 -- ============================================
 
 local BossFarmSystem = {}
@@ -17,8 +17,11 @@ local ATTACK_INTERVAL = 0.7
 local ANIMATION_CHECK_INTERVAL = 0.1
 local BOSS_CHECK_INTERVAL = 5
 local REWARD_WAIT_TIME = 5
-local MAX_TRINKET_WAIT = 15
-local COLLECTION_ROUNDS = 2
+local MAX_TRINKET_WAIT = 60
+local TRINKET_CHECK_INTERVAL = 0.5
+local TRINKET_DETECTION_RADIUS = 100
+local COLLECTION_ROUNDS = 3
+local COLLECTION_WAIT = 0.5
 local GRIP_INTERVAL = 0.25
 local MAX_GRIP_ATTEMPTS = 15
 
@@ -78,16 +81,9 @@ local BOSS_CONFIGS = {
         rewardsFolder = "TairockRewards",
         minPlayers = 10,
         spawnsInWorkspace = true,
-        proximitySearch = true,
-        searchRadius = 50,
-        searchReference = "TrinketSpawn1",
-        customRewardCollection = true,
-        rewardTeleportPos = Vector3.new(-120.965, -215.597, -1074.916),
-        preventVoidTP = true,
-        voidThreshold = -300,
-        maxPositionDelta = 100,
         useGripOnDefeat = true,
-        trinketSpawnCount = 7
+        preventVoidTP = true,
+        voidThreshold = -300
     }
 }
 
@@ -140,7 +136,7 @@ local function findBossModel(config)
 end
 
 local function isInCombat()
-    return inDanger or false
+    return getgenv().inDanger or false
 end
 
 -- ============================================
@@ -250,68 +246,21 @@ function BossFarmSystem:findManda(config)
     return nil, nil, nil
 end
 
-function BossFarmSystem:findTairock(config)
-    local rewardsFolder = Workspace:FindFirstChild(config.rewardsFolder)
-    if not rewardsFolder then
-        print("[Boss Farm] Tairock rewards folder not found")
-        return nil, nil, nil
-    end
-    
-    local searchRef = rewardsFolder:FindFirstChild(config.searchReference)
-    if not searchRef or not searchRef:IsA("BasePart") then
-        print("[Boss Farm] Tairock search reference not found")
-        return nil, nil, nil
-    end
-    
-    print("[Boss Farm] Searching for Tairock near", config.searchReference)
-    local searchPos = searchRef.Position
-    local closest = {model = nil, distance = math.huge}
-    
-    for _, modelName in ipairs(config.modelNames) do
-        for _, model in ipairs(Workspace:GetChildren()) do
-            if model.Name == modelName and model:IsA("Model") then
-                local humanoid = model:FindFirstChild("Humanoid")
-                local hrp = model:FindFirstChild("HumanoidRootPart")
-                
-                if humanoid and humanoid.Health > 1 and hrp then
-                    local distance = (hrp.Position - searchPos).Magnitude
-                    
-                    if distance <= config.searchRadius and distance < closest.distance then
-                        closest.model = model
-                        closest.distance = distance
-                        print(string.format("[Boss Farm] Found %s at %.1fm", modelName, distance))
-                    end
-                end
-            end
-        end
-    end
-    
-    if closest.model then
-        print(string.format("[Boss Farm] Selected %s (%.1fm from reference)", 
-            closest.model.Name, closest.distance))
-        return closest.model, 
-               closest.model:FindFirstChild("Humanoid"),
-               closest.model:FindFirstChild("HumanoidRootPart")
-    end
-    
-    print("[Boss Farm] No Tairock found within", config.searchRadius, "meters")
-    return nil, nil, nil
-end
-
 function BossFarmSystem:findAvailableBoss()
     for bossName, _ in pairs(self.settings.selectedBosses) do
         local config = BOSS_CONFIGS[bossName]
         if not config then continue end
         
+        -- Special handling for Manda
         if bossName == "Manda" then
             return bossName, config, self:findManda(config)
-        elseif bossName == "Tairock" and config.proximitySearch then
-            return bossName, config, self:findTairock(config)
-        else
-            local boss, humanoid, hrp = findBossModel(config)
-            if boss then
-                return bossName, config, boss, humanoid, hrp
-            end
+        end
+        
+        -- Standard boss detection (works for all bosses including Tairock)
+        local boss, humanoid, hrp = findBossModel(config)
+        if boss then
+            print("[Boss Farm] Found", bossName, "in workspace")
+            return bossName, config, boss, humanoid, hrp
         end
     end
     
@@ -319,78 +268,36 @@ function BossFarmSystem:findAvailableBoss()
 end
 
 -- ============================================
--- REWARD COLLECTION
+-- TRINKET DETECTION & COLLECTION
 -- ============================================
 
-function BossFarmSystem:collectTairockRewards(config, boss, bossHrp)
-    print("[Boss Farm] Starting Tairock reward collection...")
+function BossFarmSystem:findNearbyTrinkets(playerPos, radius)
+    local trinkets = {}
     
-    local character = getPlayerCharacter()
-    local hrp = getHumanoidRootPart(character)
-    if not hrp then return end
-    
-    -- Grip sequence with safety checks
-    if config.useGripOnDefeat then
-        self.state.running = false
-        
-        for _, conn in ipairs(self.state.connections) do
-            pcall(function() conn:Disconnect() end)
-        end
-        self.state.connections = {}
-        
-        task.wait(0.3)
-        
-        if boss and bossHrp then
-            local lastPos = bossHrp.Position
-            teleportToPosition(hrp, lastPos)
-            task.wait(0.2)
+    -- Search all workspace descendants for trinkets
+    for _, descendant in ipairs(Workspace:GetDescendants()) do
+        if descendant:IsA("BasePart") then
+            local pickupable = descendant:FindFirstChild("Pickupable")
+            local id = descendant:FindFirstChild("ID")
             
-            for i = 1, MAX_GRIP_ATTEMPTS do
-                if not boss or not boss.Parent or not bossHrp or not bossHrp.Parent then
-                    print("[Boss Farm] Boss despawned - grip successful")
-                    break
+            if pickupable and id then
+                local distance = (descendant.Position - playerPos).Magnitude
+                if distance <= radius then
+                    table.insert(trinkets, {
+                        part = descendant,
+                        id = id.Value,
+                        distance = distance
+                    })
                 end
-                
-                local currentPos = bossHrp.Position
-                local delta = (currentPos - lastPos).Magnitude
-                
-                if delta > config.maxPositionDelta then
-                    print("[Boss Farm] Boss moved too far - stopping grips")
-                    break
-                end
-                
-                if hrp.Position.Y < config.voidThreshold then
-                    print("[Boss Farm] Void detected - repositioning")
-                    teleportToPosition(hrp, lastPos)
-                    task.wait(0.2)
-                end
-                
-                teleportToPosition(hrp, currentPos)
-                pcall(function()
-                    ReplicatedStorage.Events.DataEvent:FireServer("Grip")
-                end)
-                
-                lastPos = currentPos
-                task.wait(GRIP_INTERVAL)
             end
         end
     end
     
-    -- Teleport to reward area
-    teleportToPosition(hrp, config.rewardTeleportPos)
-    notify("Boss Farm", "Moved to Tairock rewards area", 3)
-    
-    task.wait(REWARD_WAIT_TIME)
-    
-    -- Collect trinkets
-    local rewardsFolder = Workspace:FindFirstChild(config.rewardsFolder)
-    if not rewardsFolder then return end
-    
-    self:collectTrinkets(rewardsFolder, config.trinketSpawnCount)
+    return trinkets
 end
 
-function BossFarmSystem:collectUniversalRewards(config)
-    print("[Boss Farm] Starting universal reward collection...")
+function BossFarmSystem:collectRewardsImproved(config, lastBossPos)
+    print("[Boss Farm] Starting improved reward collection...")
     
     local character = getPlayerCharacter()
     local hrp = getHumanoidRootPart(character)
@@ -402,56 +309,63 @@ function BossFarmSystem:collectUniversalRewards(config)
         return
     end
     
-    -- Teleport to first spawn point
-    local firstSpawn = rewardsFolder:FindFirstChild("TrinketSpawn1")
-    if firstSpawn then
-        teleportToPosition(hrp, firstSpawn.Position)
-        notify("Boss Farm", "Waiting for trinkets...", 3)
-    end
-    
-    task.wait(REWARD_WAIT_TIME)
-    
-    -- Wait for trinkets to spawn
-    local trinketFound = false
-    local startTime = tick()
-    
-    while not trinketFound and tick() - startTime < MAX_TRINKET_WAIT do
-        for i = 1, 7 do
-            local spawn = rewardsFolder:FindFirstChild("TrinketSpawn" .. i)
-            if spawn and spawn:FindFirstChild("Occupied") then
-                trinketFound = true
-                print("[Boss Farm] Trinket spawned at TrinketSpawn" .. i)
-                break
-            end
+    -- Find first trinket spawn point
+    local spawnPoints = {}
+    for i = 1, 10 do
+        local spawn = rewardsFolder:FindFirstChild("TrinketSpawn" .. i)
+        if spawn and spawn:IsA("BasePart") then
+            table.insert(spawnPoints, spawn)
         end
-        task.wait(0.5)
     end
     
-    if not trinketFound then
+    if #spawnPoints == 0 then
+        print("[Boss Farm] No trinket spawn points found")
+        return
+    end
+    
+    -- Teleport to first spawn point
+    local firstSpawn = spawnPoints[1]
+    teleportToPosition(hrp, firstSpawn.Position)
+    notify("Boss Farm", "Waiting for trinkets to spawn...", 3)
+    
+    -- Wait and monitor for trinkets
+    local startTime = tick()
+    local trinketsFound = false
+    
+    print("[Boss Farm] Monitoring for trinkets within", TRINKET_DETECTION_RADIUS, "meters...")
+    
+    while tick() - startTime < MAX_TRINKET_WAIT do
+        local trinkets = self:findNearbyTrinkets(hrp.Position, TRINKET_DETECTION_RADIUS)
+        
+        if #trinkets > 0 then
+            trinketsFound = true
+            print("[Boss Farm] Found", #trinkets, "trinkets nearby!")
+            notify("Boss Farm", "Found " .. #trinkets .. " trinkets!", 3)
+            break
+        end
+        
+        task.wait(TRINKET_CHECK_INTERVAL)
+    end
+    
+    if not trinketsFound then
         print("[Boss Farm] No trinkets spawned after", MAX_TRINKET_WAIT, "seconds")
         notify("Boss Farm", "No trinkets found - moving on", 3)
         return
     end
     
-    self:collectTrinkets(rewardsFolder, 7)
-end
-
-function BossFarmSystem:collectTrinkets(rewardsFolder, spawnCount)
-    local character = getPlayerCharacter()
-    local hrp = getHumanoidRootPart(character)
-    if not hrp then return end
-    
+    -- Collect trinkets multiple times
     notify("Boss Farm", "Collecting trinkets...", 3)
     
     for round = 1, COLLECTION_ROUNDS do
         print("[Boss Farm] Collection round", round, "/", COLLECTION_ROUNDS)
         
-        for i = 1, spawnCount do
-            local spawn = rewardsFolder:FindFirstChild("TrinketSpawn" .. i)
-            if spawn and spawn:FindFirstChild("Occupied") then
-                teleportToPosition(hrp, spawn.Position)
-                task.wait(0.3)
-            end
+        -- Find all trinkets again
+        local trinkets = self:findNearbyTrinkets(hrp.Position, TRINKET_DETECTION_RADIUS)
+        
+        -- Teleport to each trinket
+        for _, trinket in ipairs(trinkets) do
+            teleportToPosition(hrp, trinket.part.Position)
+            task.wait(COLLECTION_WAIT)
         end
         
         if round < COLLECTION_ROUNDS then
@@ -502,7 +416,7 @@ function BossFarmSystem:createFarmingGUI(bossName, humanoid)
     healthLabel.Parent = frame
     
     local function updateHealth()
-        if humanoid then
+        if humanoid and humanoid.Parent then
             healthLabel.Text = string.format("%.0f / %.0f", humanoid.Health, humanoid.MaxHealth)
         end
     end
@@ -536,6 +450,7 @@ function BossFarmSystem:farmBoss(bossName, config, boss, humanoid, hrp)
     -- State variables
     local evading = false
     local inCloseRange = false
+    local lastBossPos = hrp.Position
     
     -- Position helpers
     local function getFarmPos()
@@ -550,9 +465,21 @@ function BossFarmSystem:farmBoss(bossName, config, boss, humanoid, hrp)
         return hrp.Position + Vector3.new(0, config.closeRangeHeight or config.farmHeight, 0)
     end
     
-    -- Boss health check
+    -- Boss health check (improved)
     local function checkAlive()
-        return boss and boss.Parent and humanoid and humanoid.Health > 1
+        if not boss or not boss.Parent then
+            print("[Boss Farm] Boss despawned from workspace")
+            return false
+        end
+        if not humanoid or not humanoid.Parent then
+            print("[Boss Farm] Humanoid removed")
+            return false
+        end
+        if humanoid.Health <= 0 then
+            print("[Boss Farm] Boss health reached zero")
+            return false
+        end
+        return true
     end
     
     -- Animation monitoring
@@ -608,6 +535,11 @@ function BossFarmSystem:farmBoss(bossName, config, boss, humanoid, hrp)
     
     -- Main teleport loop
     while self.state.running and checkAlive() do
+        -- Update last known position
+        if hrp and hrp.Parent then
+            lastBossPos = hrp.Position
+        end
+        
         local targetPos
         
         if evading then
@@ -622,22 +554,48 @@ function BossFarmSystem:farmBoss(bossName, config, boss, humanoid, hrp)
         RunService.Heartbeat:Wait()
     end
     
-    -- Boss defeated
-    print("[Boss Farm]", bossName, "defeated")
+    -- Boss defeated or despawned
+    print("[Boss Farm]", bossName, "defeated/despawned")
     
     if gui then
         gui:Destroy()
         self.state.gui = nil
     end
     
+    -- Grip sequence for Tairock
+    if config.useGripOnDefeat and boss and boss.Parent then
+        print("[Boss Farm] Executing grip sequence for", bossName)
+        
+        for i = 1, MAX_GRIP_ATTEMPTS do
+            if not boss or not boss.Parent then
+                print("[Boss Farm] Boss despawned - grip successful")
+                break
+            end
+            
+            if playerHrp.Position.Y < config.voidThreshold then
+                print("[Boss Farm] Void detected - repositioning")
+                teleportToPosition(playerHrp, lastBossPos)
+                task.wait(0.2)
+            end
+            
+            if hrp and hrp.Parent then
+                teleportToPosition(playerHrp, hrp.Position)
+            else
+                teleportToPosition(playerHrp, lastBossPos)
+            end
+            
+            pcall(function()
+                ReplicatedStorage.Events.DataEvent:FireServer("Grip")
+            end)
+            
+            task.wait(GRIP_INTERVAL)
+        end
+    end
+    
     task.wait(2)
     
-    -- Collect rewards
-    if config.customRewardCollection and bossName == "Tairock" then
-        self:collectTairockRewards(config, boss, hrp)
-    else
-        self:collectUniversalRewards(config)
-    end
+    -- Collect rewards with improved system
+    self:collectRewardsImproved(config, lastBossPos)
     
     self.state.running = false
     self.state.currentBoss = nil

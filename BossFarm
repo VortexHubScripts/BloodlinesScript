@@ -804,14 +804,14 @@ end
 -- UI SETUP
 -- ============================================
 
-local function setupUI(system, autoFarmBox)
+local function setupUI(system, AutoFarmBox)
     local bossNames = {}
     for name in pairs(BOSS_CONFIGS) do
         table.insert(bossNames, name)
     end
     table.sort(bossNames)
     
-    autoFarmBox:AddDropdown('BossSelection', {
+    AutoFarmBox:AddDropdown('BossSelection', {
         Values = bossNames,
         Default = 0,
         Multi = true,
@@ -822,7 +822,7 @@ local function setupUI(system, autoFarmBox)
         end
     })
     
-    autoFarmBox:AddToggle('ServerHopIfChakraSense', {
+    AutoFarmBox:AddToggle('ServerHopIfChakraSense', {
         Text = 'Server Hop on Chakra Sense',
         Default = false,
         Tooltip = 'Server hop when ANY player uses Chakra Sense',
@@ -831,7 +831,7 @@ local function setupUI(system, autoFarmBox)
         end
     })
     
-    autoFarmBox:AddToggle('ServerHopIfNoBoss', {
+    AutoFarmBox:AddToggle('ServerHopIfNoBoss', {
         Text = 'Server Hop on No Boss',
         Default = false,
         Tooltip = 'Server hop when no selected bosses are found',
@@ -840,7 +840,7 @@ local function setupUI(system, autoFarmBox)
         end
     })
     
-    autoFarmBox:AddToggle('BossFarmToggle', {
+    AutoFarmBox:AddToggle('BossFarmToggle', {
         Text = 'Enable Boss Farm',
         Default = false,
         Tooltip = 'Automatically farm selected bosses',

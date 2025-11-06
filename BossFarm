@@ -11,7 +11,8 @@ getgenv().BossFarmSettings = {
     Enabled = false,
     SelectedBoss = "Wooden Golem",
     ServerHopWhenComplete = true,
-    RespawnWaitTime = 120 -- seconds to wait for boss respawn
+    RespawnWaitTime = 120, -- seconds to wait for boss respawn
+    EnableHalloweenBossFarm = false -- NEW: Only farm Hallowed variants
 }
 
 -- ============================================
@@ -23,6 +24,7 @@ local BOSS_CONFIGS = {
         modelNames = {"Wooden Golem"},
         farmHeight = 15,
         safeHeight = 30,
+        positionAbove = true, -- Farm above the boss
         dangerousAnimations = {
             ["rbxassetid://120758909308511"] = true,
             ["rbxassetid://116907126244057"] = true
@@ -33,11 +35,12 @@ local BOSS_CONFIGS = {
     },
     
     ["Chakra Knight"] = {
-        modelNames = {"Chakra Knight"},
+        modelNames = {"Chakra Knight", "Hallowed Chakra Knight"},
         farmHeight = 15,
         safeHeight = 25,
+        positionAbove = false, -- Farm BELOW the boss
         dangerousAnimations = {
-            --["rbxassetid://10141233349"] = true
+            ["rbxassetid://10141233349"] = true
         },
         rewardsFolder = "ChakraKnightRewards",
         minPlayers = 10,
@@ -45,9 +48,10 @@ local BOSS_CONFIGS = {
     },
     
     ["Tairock"] = {
-        modelNames = {"Tairock"},
+        modelNames = {"Tairock", "Hallowed Tairock"},
         farmHeight = 11,
         safeHeight = 30,
+        positionAbove = false, -- Farm BELOW the boss
         dangerousAnimations = {},
         rewardsFolder = "TairockRewards",
         minPlayers = 10,
@@ -72,11 +76,13 @@ getgenv().BossESPSettings = {
 
 getgenv().ActiveBossESP = {}
 
--- Boss database
+-- Boss database (includes Hallowed variants)
 local bossDatabase = {
     "Wooden Golem",
     "Chakra Knight",
-    "Tairock"
+    "Hallowed Chakra Knight",
+    "Tairock",
+    "Hallowed Tairock"
 }
 
 local function createBossESP(boss)
@@ -232,6 +238,31 @@ local function getPlayerData()
         rootPart = character:FindFirstChild("HumanoidRootPart"),
         humanoid = character:FindFirstChildOfClass("Humanoid")
     }
+end
+
+-- Helper function to check if boss is a Hallowed variant
+local function isHallowedBoss(bossName)
+    return string.find(bossName, "Hallowed") ~= nil
+end
+
+-- Helper function to get base boss name (removes "Hallowed" prefix)
+local function getBaseBossName(bossName)
+    if isHallowedBoss(bossName) then
+        return string.gsub(bossName, "Hallowed ", "")
+    end
+    return bossName
+end
+
+-- Helper function to get boss config by model name
+local function getBossConfigByModelName(modelName)
+    for baseName, config in pairs(BOSS_CONFIGS) do
+        for _, modelVariant in ipairs(config.modelNames) do
+            if modelVariant == modelName then
+                return config, baseName
+            end
+        end
+    end
+    return nil, nil
 end
 
 -- Function to constantly teleport player to safe spot
@@ -429,14 +460,31 @@ local function isPlayerNearBoss(boss, maxDistance)
     return false
 end
 
--- Function to find boss by name
+-- Function to find boss by name (supports Hallowed variants)
 local function findBoss(bossName)
+    local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
+    
     for _, child in pairs(workspace:GetChildren()) do
-        if child.Name == bossName and child:IsA("Model") then
+        if child:IsA("Model") then
             local humanoid = child:FindFirstChildOfClass("Humanoid")
             local rootPart = child:FindFirstChild("HumanoidRootPart")
+            
             if humanoid and rootPart and humanoid.Health > 0 then
-                return child
+                local baseBossName = getBaseBossName(child.Name)
+                local isHallowed = isHallowedBoss(child.Name)
+                
+                -- If Halloween mode is enabled, only return Hallowed variants
+                if halloweenMode then
+                    if isHallowed and baseBossName == bossName then
+                        print(string.format("[Boss Farm] Found Hallowed variant: %s", child.Name))
+                        return child
+                    end
+                else
+                    -- Normal mode: find either regular or Hallowed variant
+                    if child.Name == bossName or baseBossName == bossName then
+                        return child
+                    end
+                end
             end
         end
     end
@@ -505,8 +553,8 @@ local function farmBoss(boss, healthThresholdType)
     local bossHumanoid = boss:FindFirstChildOfClass("Humanoid")
     if not bossRoot or not bossHumanoid then return false, healthThresholdType end
     
-    -- Get boss config
-    local bossConfig = BOSS_CONFIGS[boss.Name]
+    -- Get boss config using the new function
+    local bossConfig, configName = getBossConfigByModelName(boss.Name)
     if not bossConfig then 
         warn("[Boss Farm] No config found for boss:", boss.Name)
         return false, healthThresholdType 
@@ -527,11 +575,12 @@ local function farmBoss(boss, healthThresholdType)
         print(string.format("[Boss Farm] Health threshold: 50%% of Current HP (%.1f)", healthThreshold))
     end
     
-    print("[Boss Farm] Farming " .. boss.Name .. "...")
+    local hallowedText = isHallowedBoss(boss.Name) and " [HALLOWED]" or ""
+    print("[Boss Farm] Farming " .. boss.Name .. hallowedText .. "...")
     if _G.NotificationLib then
         _G.NotificationLib:MakeNotification({
             Title = "Boss Farm",
-            Text = "Farming " .. boss.Name .. "...",
+            Text = "Farming " .. boss.Name .. hallowedText .. "...",
             Duration = 3
         })
     end
@@ -561,7 +610,7 @@ local function farmBoss(boss, healthThresholdType)
     end)
     table.insert(bossFarmConnections, noclipConnection)
     
-    -- Continuous teleport loop (ABOVE BOSS, with animation-based positioning)
+    -- Continuous teleport loop (ABOVE or BELOW based on config)
     local teleportConnection = RunService.Heartbeat:Connect(function()
         if bossFarmRunning and getgenv().BossFarmSettings.Enabled then
             if humanoidRootPart then
@@ -573,8 +622,9 @@ local function farmBoss(boss, healthThresholdType)
                 local isDangerous = isDangerousAnimation(boss, bossConfig)
                 local heightToUse = isDangerous and bossConfig.safeHeight or bossConfig.farmHeight
                 
-                -- Farm ABOVE the boss (positive Y offset)
-                local farmPosition = lastKnownBossPosition + Vector3.new(0, heightToUse, 0)
+                -- Position ABOVE or BELOW based on config
+                local yOffset = bossConfig.positionAbove and heightToUse or -heightToUse
+                local farmPosition = lastKnownBossPosition + Vector3.new(0, yOffset, 0)
                 local lookAtBoss = CFrame.new(farmPosition, lastKnownBossPosition)
                 humanoidRootPart.CFrame = lookAtBoss
             end
@@ -661,10 +711,13 @@ local function startBossFarm()
     bossFarmThread = task.spawn(function()
         bossFarmRunning = true
         
+        local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
+        local modeText = halloweenMode and " [HALLOWEEN MODE]" or ""
+        
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
                 Title = "Boss Farm",
-                Text = "Boss auto-farm started!",
+                Text = "Boss auto-farm started!" .. modeText,
                 Duration = 3
             })
         end
@@ -685,11 +738,12 @@ local function startBossFarm()
             local boss = findBoss(selectedBoss)
             
             if not boss then
+                local searchText = halloweenMode and ("Hallowed " .. selectedBoss) or selectedBoss
                 print("[Boss Farm] Boss not found, waiting for respawn...")
                 if _G.NotificationLib then
                     _G.NotificationLib:MakeNotification({
                         Title = "Boss Farm",
-                        Text = "Waiting for " .. selectedBoss .. " to respawn...",
+                        Text = "Waiting for " .. searchText .. " to respawn...",
                         Duration = 3
                     })
                 end
@@ -709,7 +763,7 @@ local function startBossFarm()
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
                             Title = "Boss Farm",
-                            Text = selectedBoss .. " did not respawn!",
+                            Text = searchText .. " did not respawn!",
                             Duration = 3
                         })
                     end

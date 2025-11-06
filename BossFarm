@@ -10,9 +10,49 @@ local BossFarm = {}
 getgenv().BossFarmSettings = {
     Enabled = false,
     SelectedBoss = "Wooden Golem",
-    FarmDistance = 15,
     ServerHopWhenComplete = true,
     RespawnWaitTime = 120 -- seconds to wait for boss respawn
+}
+
+-- ============================================
+-- BOSS CONFIGURATIONS
+-- ============================================
+
+local BOSS_CONFIGS = {
+    ["Wooden Golem"] = {
+        modelNames = {"Wooden Golem"},
+        farmHeight = 15,
+        safeHeight = 30,
+        dangerousAnimations = {
+            ["rbxassetid://120758909308511"] = true,
+            ["rbxassetid://116907126244057"] = true
+        },
+        rewardsFolder = "WoodenGolemRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true
+    },
+    
+    ["Chakra Knight"] = {
+        modelNames = {"Chakra Knight"},
+        farmHeight = 15,
+        safeHeight = 25,
+        dangerousAnimations = {
+            ["rbxassetid://10141233349"] = true
+        },
+        rewardsFolder = "ChakraKnightRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true
+    },
+    
+    ["Tairock"] = {
+        modelNames = {"Tairock"},
+        farmHeight = 11,
+        safeHeight = 30,
+        dangerousAnimations = {},
+        rewardsFolder = "TairockRewards",
+        minPlayers = 10,
+        spawnsInWorkspace = true,
+    }
 }
 
 -- ============================================
@@ -165,6 +205,7 @@ local bossFarmRunning = false
 local currentBossTarget = nil
 local bossFarmConnections = {}
 local lastKnownBossPosition = nil
+local animationTracker = {}
 
 -- Safe spot position
 local SAFE_SPOT = Vector3.new(-2950.580, 321.173, -275.704)
@@ -402,6 +443,58 @@ local function findBoss(bossName)
     return nil
 end
 
+-- Function to check if boss is playing dangerous animation
+local function isDangerousAnimation(boss, bossConfig)
+    if not bossConfig.dangerousAnimations then return false end
+    
+    local humanoid = boss:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return false end
+    
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return false end
+    
+    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
+        local animId = track.Animation.AnimationId
+        if bossConfig.dangerousAnimations[animId] then
+            return true, animId
+        end
+    end
+    
+    return false
+end
+
+-- Function to setup animation tracking for boss
+local function setupAnimationTracking(boss, bossConfig)
+    local humanoid = boss:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+    
+    local animator = humanoid:FindFirstChildOfClass("Animator")
+    if not animator then return end
+    
+    -- Track when animations start
+    local animationConnection = animator.AnimationPlayed:Connect(function(track)
+        local animId = track.Animation.AnimationId
+        if bossConfig.dangerousAnimations[animId] then
+            print("[Boss Farm] Dangerous animation detected:", animId)
+            animationTracker[boss] = {
+                dangerous = true,
+                animId = animId,
+                track = track
+            }
+            
+            -- When animation stops, mark as safe again
+            track.Stopped:Connect(function()
+                print("[Boss Farm] Dangerous animation ended:", animId)
+                if animationTracker[boss] then
+                    animationTracker[boss].dangerous = false
+                end
+            end)
+        end
+    end)
+    
+    table.insert(bossFarmConnections, animationConnection)
+end
+
 -- Function to farm boss
 local function farmBoss(boss, healthThresholdType)
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -412,8 +505,18 @@ local function farmBoss(boss, healthThresholdType)
     local bossHumanoid = boss:FindFirstChildOfClass("Humanoid")
     if not bossRoot or not bossHumanoid then return false, healthThresholdType end
     
+    -- Get boss config
+    local bossConfig = BOSS_CONFIGS[boss.Name]
+    if not bossConfig then 
+        warn("[Boss Farm] No config found for boss:", boss.Name)
+        return false, healthThresholdType 
+    end
+    
     currentBossTarget = boss.Name
     lastKnownBossPosition = bossRoot.Position
+    
+    -- Setup animation tracking
+    setupAnimationTracking(boss, bossConfig)
     
     local healthThreshold
     if healthThresholdType == "max" then
@@ -458,7 +561,7 @@ local function farmBoss(boss, healthThresholdType)
     end)
     table.insert(bossFarmConnections, noclipConnection)
     
-    -- Continuous teleport loop
+    -- Continuous teleport loop (ABOVE BOSS, with animation-based positioning)
     local teleportConnection = RunService.Heartbeat:Connect(function()
         if bossFarmRunning and getgenv().BossFarmSettings.Enabled then
             if humanoidRootPart then
@@ -466,7 +569,12 @@ local function farmBoss(boss, healthThresholdType)
                     lastKnownBossPosition = bossRoot.Position
                 end
                 
-                local farmPosition = lastKnownBossPosition - Vector3.new(0, getgenv().BossFarmSettings.FarmDistance, 0)
+                -- Check if boss is playing dangerous animation
+                local isDangerous = isDangerousAnimation(boss, bossConfig)
+                local heightToUse = isDangerous and bossConfig.safeHeight or bossConfig.farmHeight
+                
+                -- Farm ABOVE the boss (positive Y offset)
+                local farmPosition = lastKnownBossPosition + Vector3.new(0, heightToUse, 0)
                 local lookAtBoss = CFrame.new(farmPosition, lastKnownBossPosition)
                 humanoidRootPart.CFrame = lookAtBoss
             end
@@ -537,6 +645,9 @@ local function farmBoss(boss, healthThresholdType)
     if attackThread then
         task.cancel(attackThread)
     end
+    
+    -- Clean up animation tracker
+    animationTracker[boss] = nil
     
     print("[Boss Farm] Exiting farm loop for this boss")
     
@@ -653,6 +764,7 @@ end
 local function stopBossFarm()
     bossFarmRunning = false
     currentBossTarget = nil
+    animationTracker = {}
     
     for _, connection in pairs(bossFarmConnections) do
         if connection and connection.Connected then
@@ -684,5 +796,6 @@ BossFarm.startFarm = startBossFarm
 BossFarm.stopFarm = stopBossFarm
 BossFarm.getFarmStatus = getFarmStatus
 BossFarm.bossDatabase = bossDatabase
+BossFarm.BOSS_CONFIGS = BOSS_CONFIGS
 
 return BossFarm

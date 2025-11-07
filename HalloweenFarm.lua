@@ -1,141 +1,77 @@
--- Boss Farm Module for Bloodlines
+-- Halloween Farm Module
 -- Place this file on GitHub and load it remotely
 
-local BossFarm = {}
+local HalloweenFarm = {}
 
 -- ============================================
--- BOSS FARM SETTINGS
+-- HALLOWEEN FARM SETTINGS
 -- ============================================
 
-getgenv().BossFarmSettings = {
+getgenv().HalloweenFarmSettings = {
     Enabled = false,
-    SelectedBoss = "Wooden Golem",
-    ServerHopWhenComplete = true,
-    RespawnWaitTime = 120, -- seconds to wait for boss respawn
-    EnableHalloweenBossFarm = false -- NEW: Only farm Hallowed variants
+    FarmPumpkins = true,
+    CollectCandy = true,
+    PumpkinFarmDistance = 8,
+    ServerHopWhenComplete = true
 }
 
 -- ============================================
--- BOSS CONFIGURATIONS
+-- PUMPKIN POINT ESP
 -- ============================================
 
-local BOSS_CONFIGS = {
-    ["Wooden Golem"] = {
-        modelNames = {"Wooden Golem"},
-        farmHeight = 15,
-        safeHeight = 30,
-        positionAbove = true, -- Farm above the boss
-        dangerousAnimations = {
-            ["rbxassetid://120758909308511"] = true,
-            ["rbxassetid://116907126244057"] = true
-        },
-        rewardsFolder = "WoodenGolemRewards",
-        minPlayers = 10,
-        spawnsInWorkspace = true
-    },
-    
-    ["Chakra Knight"] = {
-        modelNames = {"Chakra Knight", "Hallowed Chakra Knight"},
-        farmHeight = 15,
-        safeHeight = 25,
-        positionAbove = false, -- Farm BELOW the boss
-        dangerousAnimations = {
-            ["rbxassetid://10141233349"] = true
-        },
-        rewardsFolder = "ChakraKnightRewards",
-        minPlayers = 10,
-        spawnsInWorkspace = true
-    },
-    
-    ["Tairock"] = {
-        modelNames = {"Tairock", "Hallowed Tairock"},
-        farmHeight = 11,
-        safeHeight = 30,
-        positionAbove = false, -- Farm BELOW the boss
-        dangerousAnimations = {},
-        rewardsFolder = "TairockRewards",
-        minPlayers = 10,
-        spawnsInWorkspace = true,
-    }
-}
-
--- ============================================
--- BOSS ESP
--- ============================================
-
-getgenv().BossESPSettings = {
+getgenv().PumpkinESPSettings = {
     Enabled = false,
     Show = {
         Name = true,
-        Health = true,
         Distance = true,
     },
     TextSize = 18,
     MaxDistance = 99999
 }
 
-getgenv().ActiveBossESP = {}
+getgenv().ActivePumpkinESP = {}
 
--- Boss database (includes Hallowed variants)
-local bossDatabase = {
-    "Wooden Golem",
-    "Chakra Knight",
-    "Hallowed Chakra Knight",
-    "Tairock",
-    "Hallowed Tairock"
-}
-
-local function createBossESP(boss)
+local function createPumpkinESP(pumpkin)
     local Drawing = Drawing
     local esp = {
-        NameText = Drawing.new("Text"),
-        HealthText = Drawing.new("Text")
+        NameText = Drawing.new("Text")
     }
     
-    esp.NameText.Color = Color3.fromRGB(255, 0, 0)
-    esp.NameText.Size = getgenv().BossESPSettings.TextSize
+    esp.NameText.Color = Color3.fromRGB(255, 165, 0)
+    esp.NameText.Size = getgenv().PumpkinESPSettings.TextSize
     esp.NameText.Outline = true
     esp.NameText.Center = true
     esp.NameText.Visible = false
-    
-    esp.HealthText.Color = Color3.fromRGB(0, 255, 0)
-    esp.HealthText.Size = getgenv().BossESPSettings.TextSize
-    esp.HealthText.Outline = true
-    esp.HealthText.Center = true
-    esp.HealthText.Visible = false
 
-    getgenv().ActiveBossESP[boss] = esp
+    getgenv().ActivePumpkinESP[pumpkin] = esp
     return esp
 end
 
-local function updateBossESP(boss, esp)
+local function updatePumpkinESP(pumpkin, esp)
     local RunService = game:GetService("RunService")
     local Camera = workspace.CurrentCamera
     
     local connection
     connection = RunService.RenderStepped:Connect(function()
-        local Settings = getgenv().BossESPSettings
-        if not Settings.Enabled or not boss or not boss.Parent then
+        local Settings = getgenv().PumpkinESPSettings
+        if not Settings.Enabled or not pumpkin or not pumpkin.Parent then
             esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            if not boss or not boss.Parent then
+            if not pumpkin or not pumpkin.Parent then
                 connection:Disconnect()
             end
             return
         end
 
-        local rootPart = boss:FindFirstChild("HumanoidRootPart")
-        local humanoid = boss:FindFirstChildOfClass("Humanoid")
-        
-        if rootPart and rootPart:IsA("BasePart") and humanoid then
-            local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+        local main = pumpkin:FindFirstChild("Main")
+        if main and main:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(main.Position)
             if onScreen then
-                local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
+                local distance = (Camera.CFrame.Position - main.Position).Magnitude
 
                 if distance <= Settings.MaxDistance then
                     local info = {}
                     if Settings.Show.Name then 
-                        table.insert(info, "[" .. boss.Name .. "]") 
+                        table.insert(info, "[Pumpkin Point]") 
                     end
                     if Settings.Show.Distance then
                         table.insert(info, string.format("[%dm]", math.floor(distance)))
@@ -143,75 +79,64 @@ local function updateBossESP(boss, esp)
 
                     esp.NameText.Text = table.concat(info, " ")
                     esp.NameText.Size = Settings.TextSize
-                    esp.NameText.Position = Vector2.new(vector.X, vector.Y - 20)
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
                     esp.NameText.Visible = true
-                    
-                    if Settings.Show.Health and humanoid.Health > 0 then
-                        esp.HealthText.Text = string.format("[%d/%d HP]", math.floor(humanoid.Health), math.floor(humanoid.MaxHealth))
-                        esp.HealthText.Size = Settings.TextSize
-                        esp.HealthText.Position = Vector2.new(vector.X, vector.Y)
-                        esp.HealthText.Visible = true
-                    else
-                        esp.HealthText.Visible = false
-                    end
                 else
                     esp.NameText.Visible = false
-                    esp.HealthText.Visible = false
                 end
             else
                 esp.NameText.Visible = false
-                esp.HealthText.Visible = false
             end
         else
             esp.NameText.Visible = false
-            esp.HealthText.Visible = false
         end
     end)
 end
 
-local function onBossAdded(boss)
-    if table.find(bossDatabase, boss.Name) and boss:IsA("Model") then
-        local humanoid = boss:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            local bossESP = createBossESP(boss)
-            updateBossESP(boss, bossESP)
+local function onPumpkinPointAdded(pumpkinPoint)
+    if pumpkinPoint.Name == "PumpkinPoint" and pumpkinPoint:IsA("Model") then
+        local main = pumpkinPoint:WaitForChild("Main", 10)
+        if main then
+            local pumpkinESP = createPumpkinESP(pumpkinPoint)
+            updatePumpkinESP(pumpkinPoint, pumpkinESP)
 
-            boss.Destroying:Connect(function()
-                if getgenv().ActiveBossESP[boss] then
-                    for _, item in pairs(getgenv().ActiveBossESP[boss]) do
+            pumpkinPoint.Destroying:Connect(function()
+                if getgenv().ActivePumpkinESP[pumpkinPoint] then
+                    for _, item in pairs(getgenv().ActivePumpkinESP[pumpkinPoint]) do
                         if item.Remove then item:Remove() end
                     end
-                    getgenv().ActiveBossESP[boss] = nil
+                    getgenv().ActivePumpkinESP[pumpkinPoint] = nil
                 end
             end)
         end
     end
 end
 
--- Scan existing bosses
+-- Scan existing pumpkin points
 for _, child in pairs(workspace:GetChildren()) do
-    if table.find(bossDatabase, child.Name) then
-        task.spawn(onBossAdded, child)
+    if child.Name == "PumpkinPoint" then
+        task.spawn(onPumpkinPointAdded, child)
     end
 end
 
--- Monitor for new bosses
+-- Monitor for new pumpkin points
 workspace.ChildAdded:Connect(function(child)
-    if table.find(bossDatabase, child.Name) then
-        onBossAdded(child)
+    if child.Name == "PumpkinPoint" then
+        onPumpkinPointAdded(child)
     end
 end)
 
 -- ============================================
--- BOSS FARM CORE LOGIC
+-- HALLOWEEN FARM CORE LOGIC
 -- ============================================
 
-local bossFarmThread
-local bossFarmRunning = false
-local currentBossTarget = nil
-local bossFarmConnections = {}
-local lastKnownBossPosition = nil
-local animationTracker = {}
+local halloweenFarmThread
+local halloweenFarmRunning = false
+local currentHalloweenTarget = nil
+local halloweenFarmConnections = {}
+local currentPumpkinPoint = nil
+local blacklistedPumpkins = {}
+local lastKnownPumpkinPosition = nil
 
 -- Safe spot position
 local SAFE_SPOT = Vector3.new(-2950.580, 321.173, -275.704)
@@ -221,27 +146,20 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local remotes = ReplicatedStorage:WaitForChild("Events")
-local dataEvent = remotes:WaitForChild("DataEvent")
+local dataEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataEvent")
 
--- ============================================
--- DANGER CHECK
--- ============================================
-local inDanger = false
-
-dataEvent.OnClientEvent:Connect(function(eventType, ...)
-    if eventType == 'InDanger' then
-        inDanger = true
-        print("[Boss Farm] Player entered danger state!")
-    elseif eventType == 'OutOfDanger' then
-        inDanger = false
-        print("[Boss Farm] Player exited danger state!")
-    end
-end)
-
--- Get inDanger state
+-- Get inDanger state from main script
 local function getInDanger()
-    return inDanger
+    return getgenv().inDanger or false
+end
+
+-- Helper function to create position key for blacklist
+local function getPumpkinPositionKey(pumpkin)
+    local main = pumpkin:FindFirstChild("Main")
+    if main then
+        return string.format("%.1f_%.1f_%.1f", main.Position.X, main.Position.Y, main.Position.Z)
+    end
+    return nil
 end
 
 -- Helper function to get player data
@@ -256,41 +174,16 @@ local function getPlayerData()
     }
 end
 
--- Helper function to check if boss is a Hallowed variant
-local function isHallowedBoss(bossName)
-    return string.find(bossName, "Hallowed") ~= nil
-end
-
--- Helper function to get base boss name (removes "Hallowed" prefix)
-local function getBaseBossName(bossName)
-    if isHallowedBoss(bossName) then
-        return string.gsub(bossName, "Hallowed ", "")
-    end
-    return bossName
-end
-
--- Helper function to get boss config by model name
-local function getBossConfigByModelName(modelName)
-    for baseName, config in pairs(BOSS_CONFIGS) do
-        for _, modelVariant in ipairs(config.modelNames) do
-            if modelVariant == modelName then
-                return config, baseName
-            end
-        end
-    end
-    return nil, nil
-end
-
 -- Function to constantly teleport player to safe spot
 local function constantTeleportToSafeSpot()
     local playerData = getPlayerData()
     local rootPart = playerData and playerData.rootPart
     if not rootPart then return end
     
-    print("[Boss Farm] Starting constant teleport to safe spot...")
+    print("[Halloween Farm] Starting constant teleport to safe spot...")
     if _G.NotificationLib then
         _G.NotificationLib:MakeNotification({
-            Title = "Boss Farm",
+            Title = "Halloween Farm",
             Text = "Teleporting to safe spot...",
             Duration = 3
         })
@@ -307,14 +200,14 @@ end
 
 -- Function to server hop with retry logic
 local function performServerHop()
-    print("[Boss Farm] Initiating server hop...")
+    print("[Halloween Farm] Initiating fast server hop...")
     
-    -- Check if player is in danger and wait until safe
+    -- IMPROVED: Check if player is in danger and wait until safe
     if getInDanger() then
-        print("[Boss Farm] Player is in combat! Teleporting to safe spot and waiting...")
+        print("[Halloween Farm] Player is in combat! Teleporting to safe spot and waiting...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
-                Title = "Boss Farm",
+                Title = "Halloween Farm",
                 Text = "In combat! Going to safe spot...",
                 Duration = 3
             })
@@ -330,18 +223,19 @@ local function performServerHop()
         -- Wait until out of danger
         while getInDanger() do
             wait(0.5)
-            print("[Boss Farm] Still in combat, waiting...")
+            print("[Halloween Farm] Still in combat, waiting...")
         end
         
-        print("[Boss Farm] Out of combat! Proceeding with server hop...")
+        print("[Halloween Farm] Out of combat! Proceeding with server hop...")
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
-                Title = "Boss Farm",
+                Title = "Halloween Farm",
                 Text = "Out of combat! Server hopping now...",
                 Duration = 3
             })
         end
         
+        -- Wait an additional 1 second to ensure we're fully safe
         wait(1)
     end
     
@@ -350,7 +244,7 @@ local function performServerHop()
     
     while currentAttempt < maxAttempts do
         currentAttempt = currentAttempt + 1
-        print(string.format("[Boss Farm] Server hop attempt %d/%d", currentAttempt, maxAttempts))
+        print(string.format("[Halloween Farm] Server hop attempt %d/%d", currentAttempt, maxAttempts))
         
         local success, err = pcall(function()
             local playerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
@@ -410,14 +304,14 @@ local function performServerHop()
             end
             
             if #validServers == 0 then 
-                print("[Boss Farm] No valid servers found")
+                print("[Halloween Farm] No valid servers found")
                 return 
             end
             
             local randomIndex = math.random(1, #validServers)
             local selectedServer = validServers[randomIndex]
             
-            print(string.format("[Boss Farm] Attempting to join server with %d players...", selectedServer.playerCount))
+            print(string.format("[Halloween Farm] Attempting to join server with %d players...", selectedServer.playerCount))
             
             pcall(function()
                 for _, connection in pairs(getconnections(selectedServer.button.MouseButton1Click)) do
@@ -427,25 +321,27 @@ local function performServerHop()
         end)
         
         if not success then
-            warn("[Boss Farm] Server hop attempt failed:", err)
+            warn("[Halloween Farm] Server hop attempt failed:", err)
         end
         
+        -- Wait 2 seconds to see if teleport happens
         wait(2)
         
+        -- If we're still here after 2 seconds, the server was likely full
         if currentAttempt < maxAttempts then
-            print("[Boss Farm] Server likely full, retrying with different server...")
+            print("[Halloween Farm] Server likely full, retrying with different server...")
             if _G.NotificationLib then
                 _G.NotificationLib:MakeNotification({
-                    Title = "Boss Farm",
+                    Title = "Halloween Farm",
                     Text = string.format("Server full! Retry %d/%d", currentAttempt + 1, maxAttempts),
                     Duration = 2
                 })
             end
         else
-            print("[Boss Farm] Max server hop attempts reached")
+            print("[Halloween Farm] Max server hop attempts reached")
             if _G.NotificationLib then
                 _G.NotificationLib:MakeNotification({
-                    Title = "Boss Farm",
+                    Title = "Halloween Farm",
                     Text = "Failed to find available server after 5 attempts",
                     Duration = 3
                 })
@@ -454,18 +350,18 @@ local function performServerHop()
     end
 end
 
--- Function to check if any player is within distance of boss
-local function isPlayerNearBoss(boss, maxDistance)
-    local rootPart = boss:FindFirstChild("HumanoidRootPart")
-    if not rootPart then return false end
+-- Function to check if any player is within distance of pumpkin
+local function isPlayerNearPumpkin(pumpkin, maxDistance)
+    local main = pumpkin:FindFirstChild("Main")
+    if not main then return false end
     
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local character = player.Character
             if character then
-                local playerRoot = character:FindFirstChild("HumanoidRootPart")
-                if playerRoot then
-                    local distance = (playerRoot.Position - rootPart.Position).Magnitude
+                local rootPart = character:FindFirstChild("HumanoidRootPart")
+                if rootPart then
+                    local distance = (rootPart.Position - main.Position).Magnitude
                     if distance <= maxDistance then
                         return true, player.Name, distance
                     end
@@ -476,137 +372,238 @@ local function isPlayerNearBoss(boss, maxDistance)
     return false
 end
 
--- Function to find boss by name (supports Hallowed variants)
-local function findBoss(bossName)
-    local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
+-- Function to find nearest available pumpkin point
+local function findNearestAvailablePumpkinPoint()
+    local playerData = getPlayerData()
+    local rootPart = playerData and playerData.rootPart
+    if not rootPart then return nil end
+    
+    local nearestPumpkin = nil
+    local nearestDistance = math.huge
     
     for _, child in pairs(workspace:GetChildren()) do
-        if child:IsA("Model") then
-            local humanoid = child:FindFirstChildOfClass("Humanoid")
-            local rootPart = child:FindFirstChild("HumanoidRootPart")
-            
-            if humanoid and rootPart and humanoid.Health > 0 then
-                local baseBossName = getBaseBossName(child.Name)
-                local isHallowed = isHallowedBoss(child.Name)
+        if child.Name == "PumpkinPoint" and child:IsA("Model") then
+            local main = child:FindFirstChild("Main")
+            if main then
+                local destroyed = child:FindFirstChild("Destroyed")
+                if destroyed and destroyed:IsA("BoolValue") and destroyed.Value == true then
+                    continue
+                end
                 
-                -- If Halloween mode is enabled, only return Hallowed variants
-                if halloweenMode then
-                    if isHallowed and baseBossName == bossName then
-                        print(string.format("[Boss Farm] Found Hallowed variant: %s", child.Name))
-                        return child
-                    end
-                else
-                    -- Normal mode: find either regular or Hallowed variant
-                    if child.Name == bossName or baseBossName == bossName then
-                        return child
+                local posKey = getPumpkinPositionKey(child)
+                
+                if not blacklistedPumpkins[posKey] then
+                    local distance = (rootPart.Position - main.Position).Magnitude
+                    if distance < nearestDistance then
+                        nearestDistance = distance
+                        nearestPumpkin = child
                     end
                 end
             end
         end
     end
-    return nil
+    
+    return nearestPumpkin
 end
 
--- Function to check if boss is playing dangerous animation
-local function isDangerousAnimation(boss, bossConfig)
-    if not bossConfig.dangerousAnimations then return false end
+-- Function to check if pumpkin has been destroyed
+local function isPumpkinDestroyed(pumpkin)
+    local destroyed = pumpkin:FindFirstChild("Destroyed")
+    if destroyed and destroyed:IsA("BoolValue") then
+        return destroyed.Value == true
+    end
+    return false
+end
+
+-- Function to check for items near player (using ItemESP)
+local function checkForItemsNearPlayer()
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
     
-    local humanoid = boss:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return false end
+    local searchRadius = 50
     
-    local animator = humanoid:FindFirstChildOfClass("Animator")
-    if not animator then return false end
+    if not getgenv().ActiveItemESP then return false end
     
-    for _, track in pairs(animator:GetPlayingAnimationTracks()) do
-        local animId = track.Animation.AnimationId
-        if bossConfig.dangerousAnimations[animId] then
-            return true, animId
+    for item, esp in pairs(getgenv().ActiveItemESP) do
+        if item and item.Parent and item:IsA("BasePart") then
+            local distance = (item.Position - humanoidRootPart.Position).Magnitude
+            if distance <= searchRadius then
+                return true
+            end
         end
     end
     
     return false
 end
 
--- Function to setup animation tracking for boss
-local function setupAnimationTracking(boss, bossConfig)
-    local humanoid = boss:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
+-- Function to wait for items to spawn
+local function waitForItemsNearPlayer()
+    print("[Halloween Farm] Waiting for items to spawn within 50m...")
     
-    local animator = humanoid:FindFirstChildOfClass("Animator")
-    if not animator then return end
+    local itemDetected = checkForItemsNearPlayer()
     
-    -- Track when animations start
-    local animationConnection = animator.AnimationPlayed:Connect(function(track)
-        local animId = track.Animation.AnimationId
-        if bossConfig.dangerousAnimations[animId] then
-            print("[Boss Farm] Dangerous animation detected:", animId)
-            animationTracker[boss] = {
-                dangerous = true,
-                animId = animId,
-                track = track
-            }
-            
-            -- When animation stops, mark as safe again
-            track.Stopped:Connect(function()
-                print("[Boss Farm] Dangerous animation ended:", animId)
-                if animationTracker[boss] then
-                    animationTracker[boss].dangerous = false
-                end
-            end)
+    if itemDetected then
+        print("[Halloween Farm] Item already exists! Moving to next pumpkin immediately...")
+        if _G.NotificationLib then
+            _G.NotificationLib:MakeNotification({
+                Title = "Halloween Farm",
+                Text = "Item found! Moving to next pumpkin...",
+                Duration = 2
+            })
         end
-    end)
+        return true, true
+    end
     
-    table.insert(bossFarmConnections, animationConnection)
+    print("[Halloween Farm] No existing items. Monitoring ItemESP for new spawns...")
+    
+    local checkStartTime = tick()
+    local maxWaitTime = 10
+    
+    while not itemDetected and (tick() - checkStartTime) < maxWaitTime do
+        if not getgenv().HalloweenFarmSettings.Enabled then
+            return false, false
+        end
+        
+        itemDetected = checkForItemsNearPlayer()
+        
+        if itemDetected then
+            print("[Halloween Farm] Item spawned! Moving to next pumpkin immediately...")
+            if _G.NotificationLib then
+                _G.NotificationLib:MakeNotification({
+                    Title = "Halloween Farm",
+                    Text = "Item spawned! Moving to next pumpkin...",
+                    Duration = 2
+                })
+            end
+            return true, true
+        end
+        
+        wait(0.1)
+    end
+    
+    if not itemDetected then
+        print("[Halloween Farm] No items detected after 6 seconds. Moving to next pumpkin immediately...")
+        if _G.NotificationLib then
+            _G.NotificationLib:MakeNotification({
+                Title = "Halloween Farm",
+                Text = "No items, moving to next pumpkin...",
+                Duration = 2
+            })
+        end
+    end
+    
+    return true, itemDetected
 end
 
--- Function to farm boss
-local function farmBoss(boss, healthThresholdType)
+-- Helper function to check if player has Treat Basket equipped
+local function hasTreatBasketEquipped()
+    local character = LocalPlayer.Character
+    if not character then return false end
+    
+    local treatBasket = character:FindFirstChild("Treat Basket")
+    return treatBasket ~= nil
+end
+
+-- Helper function to get visible candy count
+local function getVisibleCandyCount()
+    local playerBasket = workspace:FindFirstChild(LocalPlayer.Name)
+    if not playerBasket then return 0 end
+    
+    local basket = playerBasket:FindFirstChild("Treat Basket")
+    if not basket then return 0 end
+
+    local count = 0
+    for _, obj in pairs(basket:GetChildren()) do
+        if obj:IsA("MeshPart") and obj.Name == "Candy" and obj.Transparency == 0 then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+-- Helper function to auto fill basket
+local function autoFillBasket()
+    print("[Halloween Farm] Starting Auto Fill Basket...")
+    
+    local function isValidNPC(model)
+        if not model:IsA("Model") then
+            return false
+        end
+        
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if not humanoid then
+            return false
+        end
+        
+        local npcValue = model:FindFirstChild("NPC")
+        if not npcValue or not npcValue:IsA("StringValue") then
+            return false
+        end
+        
+        local hrp = model:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            return false
+        end
+        
+        return true, hrp
+    end
+    
+    local npcCount = 0
+    for _, model in pairs(workspace:GetChildren()) do
+        if getVisibleCandyCount() >= 8 then
+            print("[Halloween Farm] Basket reached 8 visible candies")
+            break
+        end
+
+        local isValid, hrp = isValidNPC(model)
+        if isValid then
+            local success, result = pcall(function()
+                return ReplicatedStorage.Events.DataFunction:InvokeServer("trickOrTreat", hrp)
+            end)
+            
+            if success then
+                npcCount = npcCount + 1
+                print("[Halloween Farm] Successfully ran trickOrTreat on:", model.Name)
+            end
+            
+            task.wait(0.1)
+        end
+    end
+    
+    print("[Halloween Farm] Finished! Ran trickOrTreat on", npcCount, "NPCs")
+end
+
+-- Function to farm pumpkin point
+local function farmPumpkinPoint(pumpkin)
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
     local humanoid = character:WaitForChild("Humanoid")
     
-    local bossRoot = boss:FindFirstChild("HumanoidRootPart")
-    local bossHumanoid = boss:FindFirstChildOfClass("Humanoid")
-    if not bossRoot or not bossHumanoid then return false, healthThresholdType end
+    local main = pumpkin:FindFirstChild("Main")
+    if not main then return false, "skip" end
     
-    -- Get boss config using the new function
-    local bossConfig, configName = getBossConfigByModelName(boss.Name)
-    if not bossConfig then 
-        warn("[Boss Farm] No config found for boss:", boss.Name)
-        return false, healthThresholdType 
-    end
+    currentHalloweenTarget = "Pumpkin Point"
+    currentPumpkinPoint = pumpkin
     
-    currentBossTarget = boss.Name
-    lastKnownBossPosition = bossRoot.Position
+    lastKnownPumpkinPosition = main.Position
     
-    -- Setup animation tracking
-    setupAnimationTracking(boss, bossConfig)
+    local pumpkinPosKey = getPumpkinPositionKey(pumpkin)
     
-    local healthThreshold
-    if healthThresholdType == "max" then
-        healthThreshold = humanoid.MaxHealth * 0.5
-        print(string.format("[Boss Farm] Health threshold: 50%% of Max HP (%.1f)", healthThreshold))
-    else
-        healthThreshold = humanoid.Health * 0.5
-        print(string.format("[Boss Farm] Health threshold: 50%% of Current HP (%.1f)", healthThreshold))
-    end
-    
-    local hallowedText = isHallowedBoss(boss.Name) and " [HALLOWED]" or ""
-    print("[Boss Farm] Farming " .. boss.Name .. hallowedText .. "...")
+    print("[Halloween Farm] Farming Pumpkin Point from below...")
     if _G.NotificationLib then
         _G.NotificationLib:MakeNotification({
-            Title = "Boss Farm",
-            Text = "Farming " .. boss.Name .. hallowedText .. "...",
+            Title = "Halloween Farm",
+            Text = "Farming Pumpkin Point from below...",
             Duration = 3
         })
     end
 
     -- Attack thread
     local attackThread = task.spawn(function()
-        while bossFarmRunning and currentBossTarget == boss.Name do
+        while halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" do
             wait(0.7)
 
-            if bossFarmRunning and currentBossTarget == boss.Name then
+            if halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" then
                 pcall(function()
                     dataEvent:FireServer("CheckMeleeHit", nil, "NormalAttack", false)
                 end)
@@ -616,7 +613,7 @@ local function farmBoss(boss, healthThresholdType)
     
     -- Enable noclip
     local noclipConnection = RunService.Stepped:Connect(function()
-        if bossFarmRunning and getgenv().BossFarmSettings.Enabled then
+        if halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled then
             for _, part in pairs(character:GetDescendants()) do
                 if part:IsA('BasePart') then
                     part.CanCollide = false
@@ -624,72 +621,76 @@ local function farmBoss(boss, healthThresholdType)
             end
         end
     end)
-    table.insert(bossFarmConnections, noclipConnection)
+    table.insert(halloweenFarmConnections, noclipConnection)
     
-    -- Continuous teleport loop (ABOVE or BELOW based on config)
+    -- Continuous teleport loop
     local teleportConnection = RunService.Heartbeat:Connect(function()
-        if bossFarmRunning and getgenv().BossFarmSettings.Enabled then
+        if halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled then
             if humanoidRootPart then
-                if bossRoot and bossRoot.Parent then
-                    lastKnownBossPosition = bossRoot.Position
+                if main and main.Parent then
+                    lastKnownPumpkinPosition = main.Position
                 end
                 
-                -- Check if boss is playing dangerous animation
-                local isDangerous = isDangerousAnimation(boss, bossConfig)
-                local heightToUse = isDangerous and bossConfig.safeHeight or bossConfig.farmHeight
-                
-                -- Position ABOVE or BELOW based on config
-                local yOffset = bossConfig.positionAbove and heightToUse or -heightToUse
-                local farmPosition = lastKnownBossPosition + Vector3.new(0, yOffset, 0)
-                local lookAtBoss = CFrame.new(farmPosition, lastKnownBossPosition)
-                humanoidRootPart.CFrame = lookAtBoss
+                local farmPosition = lastKnownPumpkinPosition - Vector3.new(0, getgenv().HalloweenFarmSettings.PumpkinFarmDistance, 0)
+                local lookAtPumpkin = CFrame.new(farmPosition, lastKnownPumpkinPosition)
+                humanoidRootPart.CFrame = lookAtPumpkin
             end
         end
     end)
-    table.insert(bossFarmConnections, teleportConnection)
+    table.insert(halloweenFarmConnections, teleportConnection)
     
     -- Main farming loop
-    local bossDefeated = false
+    local pumpkinDestroyed = false
     local lowHealthExit = false
+    local exitReason = "complete"
     
-    while bossFarmRunning and currentBossTarget == boss.Name do
-        -- Health check
-        if humanoid.Health < healthThreshold and not lowHealthExit then
-            print(string.format("[Boss Farm] Health below threshold! (%.1f < %.1f)", humanoid.Health, healthThreshold))
+    while halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" do
+        -- NEW: Check if health is below 50 HP
+        if humanoid.Health < 50 and not lowHealthExit then
+            print(string.format("[Halloween Farm] Health below 50 HP! (%.1f HP)", humanoid.Health))
+            if _G.NotificationLib then
+                _G.NotificationLib:MakeNotification({
+                    Title = "Halloween Farm",
+                    Text = string.format("Health below 50 HP! Moving to safe spot..."),
+                    Duration = 3
+                })
+            end
+            
+            -- Blacklist this pumpkin
+            if pumpkinPosKey then
+                blacklistedPumpkins[pumpkinPosKey] = true
+            end
             
             lowHealthExit = true
-            healthThresholdType = "current"
+            exitReason = "low_health"
             
+            -- Disconnect teleport connection
             if teleportConnection then
                 teleportConnection:Disconnect()
                 teleportConnection = nil
             end
             
-            local safeSpotConnection = constantTeleportToSafeSpot()
-            table.insert(bossFarmConnections, safeSpotConnection)
+            -- Teleport to safe spot
+            humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
             
-            wait(2)
+            wait(1)
             break
         end
         
-        if not bossDefeated then
-            if not boss.Parent or not bossRoot.Parent or bossHumanoid.Health <= 0 then
-                print("[Boss Farm] Boss defeated!")
-                if _G.NotificationLib then
-                    _G.NotificationLib:MakeNotification({
-                        Title = "Boss Farm",
-                        Text = boss.Name .. " defeated!",
-                        Duration = 3
-                    })
-                end
-                bossDefeated = true
-                break
+        if not pumpkinDestroyed then
+            if not pumpkin.Parent or not main.Parent then
+                print("[Halloween Farm] Pumpkin Point despawned")
+                pumpkinDestroyed = true
             end
             
             if math.random(1, 10) == 1 then
-                local playerNearby, playerName, distance = isPlayerNearBoss(boss, 100)
+                local playerNearby, playerName, distance = isPlayerNearPumpkin(pumpkin, 100)
                 if playerNearby then
-                    print(string.format("[Boss Farm] Player %s detected within %.1fm!", playerName, distance))
+                    print(string.format("[Halloween Farm] Player %s detected within %.1fm!", playerName, distance))
+                    
+                    if pumpkinPosKey then
+                        blacklistedPumpkins[pumpkinPosKey] = true
+                    end
                     
                     if teleportConnection then
                         teleportConnection:Disconnect()
@@ -697,11 +698,140 @@ local function farmBoss(boss, healthThresholdType)
                     end
                     
                     local safeSpotConnection = constantTeleportToSafeSpot()
-                    table.insert(bossFarmConnections, safeSpotConnection)
+                    table.insert(halloweenFarmConnections, safeSpotConnection)
                     
                     wait(2)
+                    exitReason = "player_nearby"
                     break
                 end
+            end
+            
+            if isPumpkinDestroyed(pumpkin) then
+                print("[Halloween Farm] Pumpkin Point destroyed! Staying in position and waiting for items...")
+                if _G.NotificationLib then
+                    _G.NotificationLib:MakeNotification({
+                        Title = "Halloween Farm",
+                        Text = "Pumpkin destroyed! Waiting for items...",
+                        Duration = 3
+                    })
+                end
+                pumpkinDestroyed = true
+            end
+        end
+        
+        if pumpkinDestroyed then
+            if getgenv().HalloweenFarmSettings.Enabled then
+                local itemsSpawned, itemDetected = waitForItemsNearPlayer()
+                
+                if itemsSpawned and itemDetected then
+                    print("[Halloween Farm] Items collected! Starting Treat Basket sequence...")
+                    
+                    local wasAutoEquipEnabled = getgenv().AutoEquipSettings and getgenv().AutoEquipSettings.Enabled
+                    if wasAutoEquipEnabled then
+                        print("[Halloween Farm] Disabling Auto-Equip Weapon...")
+                        getgenv().AutoEquipSettings.Enabled = false
+                        if setupAutoEquip then
+                            setupAutoEquip(false)
+                        end
+                    end
+                    
+                    print("[Halloween Farm] Equipping Treat Basket...")
+                    pcall(function()
+                        dataEvent:FireServer("Item", "Selected", "Treat Basket")
+                    end)
+                    
+                    wait(1)
+                    
+                    local basketAppeared = false
+                    local checkStartTime = tick()
+                    local maxWaitTime = 5
+                    
+                    while not basketAppeared and (tick() - checkStartTime) < maxWaitTime do
+                        if hasTreatBasketEquipped() then
+                            basketAppeared = true
+                            print("[Halloween Farm] Treat Basket equipped!")
+                            break
+                        end
+                        wait(0.1)
+                    end
+                    
+                    if basketAppeared then
+                        print("[Halloween Farm] Treat Basket detected! Pausing farm and going to safe spot...")
+                        if _G.NotificationLib then
+                            _G.NotificationLib:MakeNotification({
+                                Title = "Halloween Farm",
+                                Text = "Treat Basket equipped! Collecting candy...",
+                                Duration = 3
+                            })
+                        end
+                        
+                        humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
+                        wait(1)
+                        
+                        autoFillBasket()
+                        
+                        print("[Halloween Farm] Waiting for basket to fill...")
+                        local fillStartTime = tick()
+                        local maxFillTime = 15
+                        
+                        while (tick() - fillStartTime) < maxFillTime do
+                            local candyCount = getVisibleCandyCount()
+                            if candyCount >= 8 then
+                                print("[Halloween Farm] Basket full! (" .. candyCount .. "/8 candy)")
+                                break
+                            end
+                            wait(0.5)
+                        end
+                        
+                        print("[Halloween Farm] Consuming Treat Basket...")
+                        if _G.NotificationLib then
+                            _G.NotificationLib:MakeNotification({
+                                Title = "Halloween Farm",
+                                Text = "Consuming Treat Basket...",
+                                Duration = 3
+                            })
+                        end
+                        
+                        pcall(function()
+                            dataEvent:FireServer("Consumed", "Treat Basket")
+                        end)
+                        
+                        wait(1)
+                        
+                        if wasAutoEquipEnabled then
+                            print("[Halloween Farm] Re-enabling Auto-Equip Weapon...")
+                            getgenv().AutoEquipSettings.Enabled = true
+                            if setupAutoEquip then
+                                setupAutoEquip(true)
+                            end
+                        end
+                        
+                        print("[Halloween Farm] Treat Basket sequence complete!")
+                        if _G.NotificationLib then
+                            _G.NotificationLib:MakeNotification({
+                                Title = "Halloween Farm",
+                                Text = "Treat Basket consumed! Resuming farm...",
+                                Duration = 3
+                            })
+                        end
+                    else
+                        print("[Halloween Farm] Treat Basket did not appear, skipping sequence...")
+                        
+                        if wasAutoEquipEnabled then
+                            getgenv().AutoEquipSettings.Enabled = true
+                            if setupAutoEquip then
+                                setupAutoEquip(true)
+                            end
+                        end
+                    end
+                    
+                    break
+                else
+                    print("[Halloween Farm] No items spawned, moving to next pumpkin...")
+                    break
+                end
+            else
+                break
             end
         end
         
@@ -712,160 +842,299 @@ local function farmBoss(boss, healthThresholdType)
         task.cancel(attackThread)
     end
     
-    -- Clean up animation tracker
-    animationTracker[boss] = nil
+    print("[Halloween Farm] Exiting farm loop for this pumpkin")
     
-    print("[Boss Farm] Exiting farm loop for this boss")
-    
-    return true, healthThresholdType
+    return true, exitReason
 end
 
--- Main Boss farm loop
-local function startBossFarm()
-    if bossFarmRunning then return end
+-- Function to revisit blacklisted pumpkins
+local function recheckBlacklistedPumpkins()
+    print("[Halloween Farm] Rechecking blacklisted pumpkins...")
     
-    bossFarmThread = task.spawn(function()
-        bossFarmRunning = true
-        
-        local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
-        local modeText = halloweenMode and " [HALLOWEEN MODE]" or ""
+    local availablePumpkins = {}
+    
+    for posKey, _ in pairs(blacklistedPumpkins) do
+        for _, child in pairs(workspace:GetChildren()) do
+            if child.Name == "PumpkinPoint" and child:IsA("Model") then
+                local currentPosKey = getPumpkinPositionKey(child)
+                if currentPosKey == posKey then
+                    local destroyed = child:FindFirstChild("Destroyed")
+                    if not destroyed or not destroyed.Value then
+                        local playerNearby = isPlayerNearPumpkin(child, 100)
+                        if not playerNearby then
+                            table.insert(availablePumpkins, child)
+                            blacklistedPumpkins[posKey] = nil
+                            print("[Halloween Farm] Removed pumpkin from blacklist")
+                        end
+                    else
+                        blacklistedPumpkins[posKey] = nil
+                    end
+                    break
+                end
+            end
+        end
+    end
+    
+    return availablePumpkins
+end
+
+-- Main Halloween farm loop
+local function startHalloweenFarm()
+    if halloweenFarmRunning then return end
+    
+    halloweenFarmThread = task.spawn(function()
+        halloweenFarmRunning = true
         
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
-                Title = "Boss Farm",
-                Text = "Boss auto-farm started!" .. modeText,
+                Title = "Halloween Farm",
+                Text = "Halloween auto-farm started!",
                 Duration = 3
             })
         end
         
-        local healthThresholdType = "max"
+        local firstCycleComplete = false
         
-        while getgenv().BossFarmSettings.Enabled do
-            for _, connection in pairs(bossFarmConnections) do
+        while getgenv().HalloweenFarmSettings.Enabled do
+            for _, connection in pairs(halloweenFarmConnections) do
                 if connection and connection.Connected then
                     pcall(function()
                         connection:Disconnect()
                     end)
                 end
             end
-            bossFarmConnections = {}
+            halloweenFarmConnections = {}
             
-            local selectedBoss = getgenv().BossFarmSettings.SelectedBoss
-            local boss = findBoss(selectedBoss)
+            local nearestPumpkin = findNearestAvailablePumpkinPoint()
             
-            if not boss then
-                local searchText = halloweenMode and ("Hallowed " .. selectedBoss) or selectedBoss
-                print("[Boss Farm] Boss not found, waiting for respawn...")
-                if _G.NotificationLib then
-                    _G.NotificationLib:MakeNotification({
-                        Title = "Boss Farm",
-                        Text = "Waiting for " .. searchText .. " to respawn...",
-                        Duration = 3
-                    })
-                end
+            if not nearestPumpkin then
+                print("[Halloween Farm] No pumpkins found in main scan")
                 
-                local waitStartTime = tick()
-                local respawnWaitTime = getgenv().BossFarmSettings.RespawnWaitTime
-                
-                while not boss and (tick() - waitStartTime) < respawnWaitTime do
-                    if not getgenv().BossFarmSettings.Enabled then break end
-                    
-                    wait(2)
-                    boss = findBoss(selectedBoss)
-                end
-                
-                if not boss then
-                    print("[Boss Farm] Boss did not respawn in time!")
+                if not firstCycleComplete then
+                    firstCycleComplete = true
+                    print("[Halloween Farm] First cycle complete! Rechecking blacklisted pumpkins...")
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
-                            Title = "Boss Farm",
-                            Text = searchText .. " did not respawn!",
+                            Title = "Halloween Farm",
+                            Text = "All pumpkins checked! Rechecking blacklisted ones...",
                             Duration = 3
                         })
                     end
                     
-                    if getInDanger() then
-                        print("[Boss Farm] Player in danger! Waiting to be safe before server hop...")
+                    local recheckPumpkins = recheckBlacklistedPumpkins()
+                    
+                    if #recheckPumpkins > 0 then
+                        print(string.format("[Halloween Farm] Found %d pumpkins to recheck", #recheckPumpkins))
                         
-                        while getInDanger() do
-                            wait(0.5)
+                        for _, pumpkin in ipairs(recheckPumpkins) do
+                            if not getgenv().HalloweenFarmSettings.Enabled then break end
+                            
+                            local playerNearby = isPlayerNearPumpkin(pumpkin, 100)
+                            if not playerNearby then
+                                if getgenv().HalloweenFarmSettings.FarmPumpkins then
+                                    local farmSuccess, exitReason = farmPumpkinPoint(pumpkin)
+                                    wait(0.3)
+                                end
+                            else
+                                print("[Halloween Farm] Player still nearby pumpkin, skipping...")
+                            end
                         end
-                    end
-                    
-                    print("[Boss Farm] Moving to safe spot before server hop...")
-                    local playerData = getPlayerData()
-                    local rootPart = playerData and playerData.rootPart
-                    if rootPart then
-                        rootPart.CFrame = CFrame.new(SAFE_SPOT)
-                    end
-                    
-                    wait(0.5)
-                    
-                    if getgenv().BossFarmSettings.ServerHopWhenComplete then
-                        performServerHop()
-                        break
+                        
+                        continue
                     else
-                        print("[Boss Farm] Server hop disabled, stopping farm...")
-                        break
+                        print("[Halloween Farm] No blacklisted pumpkins available to recheck")
                     end
+                end
+                
+                print("[Halloween Farm] All pumpkins destroyed!")
+                if _G.NotificationLib then
+                    _G.NotificationLib:MakeNotification({
+                        Title = "Halloween Farm",
+                        Text = "All pumpkins destroyed! Preparing to server hop...",
+                        Duration = 3
+                    })
+                end
+                
+                -- NEW: Check if in danger before server hopping
+                if getInDanger() then
+                    print("[Halloween Farm] Player in danger! Waiting to be safe before server hop...")
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "In combat! Waiting to be safe...",
+                            Duration = 3
+                        })
+                    end
+                    
+                    -- Wait until out of danger
+                    while getInDanger() do
+                        wait(0.5)
+                        print("[Halloween Farm] Still in danger, waiting...")
+                    end
+                    
+                    print("[Halloween Farm] Out of danger! Proceeding to safe spot...")
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "Out of combat! Moving to safe spot...",
+                            Duration = 3
+                        })
+                    end
+                end
+                
+                print("[Halloween Farm] Moving to safe spot before server hop...")
+                local playerData = getPlayerData()
+                local rootPart = playerData and playerData.rootPart
+                if rootPart then
+                    rootPart.CFrame = CFrame.new(SAFE_SPOT)
+                end
+                
+                wait(0.5)
+                
+                if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
+                    performServerHop()
+                    break
+                else
+                    print("[Halloween Farm] Server hop disabled, stopping farm...")
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "All pumpkins destroyed! Farm complete.",
+                            Duration = 3
+                        })
+                    end
+                    break
                 end
             end
             
-            if boss then
-                local playerNearby, playerName = isPlayerNearBoss(boss, 100)
-                if playerNearby then
-                    print(string.format("[Boss Farm] Player %s nearby boss, waiting...", playerName))
-                    wait(5)
-                    continue
+            local playerNearby, playerName = isPlayerNearPumpkin(nearestPumpkin, 100)
+            if playerNearby then
+                print(string.format("[Halloween Farm] Player %s nearby, blacklisting pumpkin...", playerName))
+                local posKey = getPumpkinPositionKey(nearestPumpkin)
+                if posKey then
+                    blacklistedPumpkins[posKey] = true
                 end
-                
-                local farmSuccess, newThresholdType = farmBoss(boss, healthThresholdType)
-                healthThresholdType = newThresholdType or healthThresholdType
+                wait(0.3)
+                continue
+            end
+            
+            if getgenv().HalloweenFarmSettings.FarmPumpkins then
+                local farmSuccess, exitReason = farmPumpkinPoint(nearestPumpkin)
+                wait(0.3)
+            else
                 wait(0.3)
             end
         end
         
-        bossFarmRunning = false
-        currentBossTarget = nil
+        halloweenFarmRunning = false
+        currentHalloweenTarget = nil
+        currentPumpkinPoint = nil
     end)
 end
 
--- Function to stop Boss farm
-local function stopBossFarm()
-    bossFarmRunning = false
-    currentBossTarget = nil
-    animationTracker = {}
+-- Function to stop Halloween farm
+local function stopHalloweenFarm()
+    halloweenFarmRunning = false
+    currentHalloweenTarget = nil
+    currentPumpkinPoint = nil
     
-    for _, connection in pairs(bossFarmConnections) do
+    for _, connection in pairs(halloweenFarmConnections) do
         if connection and connection.Connected then
             pcall(function()
                 connection:Disconnect()
             end)
         end
     end
-    bossFarmConnections = {}
+    halloweenFarmConnections = {}
     
-    if bossFarmThread then
+    if halloweenFarmThread then
         pcall(function()
-            task.cancel(bossFarmThread)
+            task.cancel(halloweenFarmThread)
         end)
-        bossFarmThread = nil
+        halloweenFarmThread = nil
+    end
+end
+
+-- Function to reset blacklisted pumpkins
+local function resetBlacklist()
+    blacklistedPumpkins = {}
+    if _G.NotificationLib then
+        _G.NotificationLib:MakeNotification({
+            Title = "Halloween Farm",
+            Text = "Blacklist cleared!",
+            Duration = 3
+        })
     end
 end
 
 -- Function to get current farm status
 local function getFarmStatus()
     return {
-        running = bossFarmRunning,
-        currentTarget = currentBossTarget
+        running = halloweenFarmRunning,
+        currentTarget = currentHalloweenTarget,
+        blacklistedCount = (function()
+            local count = 0
+            for _ in pairs(blacklistedPumpkins) do
+                count = count + 1
+            end
+            return count
+        end)()
     }
 end
 
--- Export functions
-BossFarm.startFarm = startBossFarm
-BossFarm.stopFarm = stopBossFarm
-BossFarm.getFarmStatus = getFarmStatus
-BossFarm.bossDatabase = bossDatabase
-BossFarm.BOSS_CONFIGS = BOSS_CONFIGS
+-- ============================================
+-- AUTO PICKUP CANDY FEATURE
+-- ============================================
 
-return BossFarm
+local AutoPickupCandyRunning = false
+local candyConnections = {}
+
+local function pickupCandy(candyObj)
+    local clickDetector = candyObj:FindFirstChild("ItemDetector")
+    if clickDetector and clickDetector:IsA("ClickDetector") then
+        pcall(function()
+            fireclickdetector(clickDetector)
+        end)
+    end
+end
+
+local function startAutoPickupCandy()
+    AutoPickupCandyRunning = true
+    
+    task.spawn(function()
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if AutoPickupCandyRunning and obj:IsA("MeshPart") and obj.Name == "Candy" then
+                pickupCandy(obj)
+            end
+        end
+    end)
+    
+    local connection = workspace.DescendantAdded:Connect(function(obj)
+        if AutoPickupCandyRunning and obj:IsA("MeshPart") and obj.Name == "Candy" then
+            task.wait(0.1)
+            pickupCandy(obj)
+        end
+    end)
+    
+    table.insert(candyConnections, connection)
+end
+
+local function stopAutoPickupCandy()
+    AutoPickupCandyRunning = false
+    
+    for _, connection in pairs(candyConnections) do
+        connection:Disconnect()
+    end
+    candyConnections = {}
+end
+
+-- Export functions
+HalloweenFarm.startFarm = startHalloweenFarm
+HalloweenFarm.stopFarm = stopHalloweenFarm
+HalloweenFarm.resetBlacklist = resetBlacklist
+HalloweenFarm.getFarmStatus = getFarmStatus
+HalloweenFarm.startAutoPickupCandy = startAutoPickupCandy
+HalloweenFarm.stopAutoPickupCandy = stopAutoPickupCandy
+HalloweenFarm.autoFillBasket = autoFillBasket
+
+return HalloweenFarm

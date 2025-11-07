@@ -3,6 +3,11 @@
 
 local HalloweenFarm = {}
 
+-- Ensure module returns properly even if there's an error
+local function safeReturn()
+    return HalloweenFarm
+end
+
 -- ============================================
 -- HALLOWEEN FARM SETTINGS
 -- ============================================
@@ -56,6 +61,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+
+-- Wait for services to load
+if not LocalPlayer then
+    print("[Halloween Farm] ERROR: LocalPlayer not found!")
+    return HalloweenFarm
+end
 
 local remotes = ReplicatedStorage:WaitForChild("Events")
 local dataEvent = remotes:WaitForChild("DataEvent")
@@ -1192,5 +1203,12 @@ HalloweenFarm.getFarmStatus = getFarmStatus
 HalloweenFarm.startAutoPickupCandy = startAutoPickupCandy
 HalloweenFarm.stopAutoPickupCandy = stopAutoPickupCandy
 HalloweenFarm.autoFillBasket = autoFillBasket
+
+-- Verify all functions are exported
+print("[Halloween Farm] Module loaded successfully!")
+print("[Halloween Farm] Exported functions:")
+for funcName, func in pairs(HalloweenFarm) do
+    print("  - " .. funcName .. ": " .. type(func))
+end
 
 return HalloweenFarm

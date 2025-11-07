@@ -580,7 +580,7 @@ local function farmPumpkinPoint(pumpkin)
     local humanoid = character:WaitForChild("Humanoid")
     
     local main = pumpkin:FindFirstChild("Main")
-    if not main then return false, "skip" end
+    if not main then return false, healthThresholdType end
     
     currentHalloweenTarget = "Pumpkin Point"
     currentPumpkinPoint = pumpkin
@@ -588,6 +588,9 @@ local function farmPumpkinPoint(pumpkin)
     lastKnownPumpkinPosition = main.Position
     
     local pumpkinPosKey = getPumpkinPositionKey(pumpkin)
+    
+    local healthThreshold = 50
+    print(string.format("[Halloween Farm] Health threshold: 50 HP"))
     
     print("[Halloween Farm] Farming Pumpkin Point from below...")
     if _G.NotificationLib then
@@ -642,16 +645,15 @@ local function farmPumpkinPoint(pumpkin)
     -- Main farming loop
     local pumpkinDestroyed = false
     local lowHealthExit = false
-    local exitReason = "complete"
     
     while halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" do
-        -- NEW: Check if health is below 50 HP
-        if humanoid.Health < 50 and not lowHealthExit then
-            print(string.format("[Halloween Farm] Health below 50 HP! (%.1f HP)", humanoid.Health))
+        -- Health check
+        if humanoid.Health < healthThreshold and not lowHealthExit then
+            print(string.format("[Halloween Farm] Health below 50 HP! (%.1f < %.1f)", humanoid.Health, healthThreshold))
             if _G.NotificationLib then
                 _G.NotificationLib:MakeNotification({
                     Title = "Halloween Farm",
-                    Text = string.format("Health below 50 HP! Moving to safe spot..."),
+                    Text = "Low HP! Going to safe spot...",
                     Duration = 3
                 })
             end
@@ -659,21 +661,57 @@ local function farmPumpkinPoint(pumpkin)
             -- Blacklist this pumpkin
             if pumpkinPosKey then
                 blacklistedPumpkins[pumpkinPosKey] = true
+                print("[Halloween Farm] Blacklisted pumpkin due to low HP")
             end
             
             lowHealthExit = true
-            exitReason = "low_health"
             
-            -- Disconnect teleport connection
+            -- Stop the teleport to pumpkin
             if teleportConnection then
                 teleportConnection:Disconnect()
                 teleportConnection = nil
             end
             
             -- Teleport to safe spot
+            print("[Halloween Farm] Teleporting to safe spot...")
             humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
             
-            wait(1)
+            -- Wait at safe spot while checking danger status
+            local waitStartTime = tick()
+            local maxSafeWaitTime = 30 -- Wait up to 30 seconds at safe spot
+            
+            while (tick() - waitStartTime) < maxSafeWaitTime do
+                if not getInDanger() then
+                    print("[Halloween Farm] Out of danger! Continuing to next pumpkin...")
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "Safe! Moving to next pumpkin...",
+                            Duration = 3
+                        })
+                    end
+                    break
+                end
+                print("[Halloween Farm] Still in danger, waiting at safe spot...")
+                wait(1)
+            end
+            
+            -- If still in danger after 30 seconds, attempt server hop
+            if getInDanger() then
+                print("[Halloween Farm] Still in danger after 30s! Attempting server hop...")
+                if _G.NotificationLib then
+                    _G.NotificationLib:MakeNotification({
+                        Title = "Halloween Farm",
+                        Text = "Still in combat! Server hopping...",
+                        Duration = 3
+                    })
+                end
+                
+                if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
+                    performServerHop()
+                end
+            end
+            
             break
         end
         
@@ -701,7 +739,6 @@ local function farmPumpkinPoint(pumpkin)
                     table.insert(halloweenFarmConnections, safeSpotConnection)
                     
                     wait(2)
-                    exitReason = "player_nearby"
                     break
                 end
             end
@@ -844,7 +881,7 @@ local function farmPumpkinPoint(pumpkin)
     
     print("[Halloween Farm] Exiting farm loop for this pumpkin")
     
-    return true, exitReason
+    return true
 end
 
 -- Function to revisit blacklisted pumpkins
@@ -932,8 +969,8 @@ local function startHalloweenFarm()
                             local playerNearby = isPlayerNearPumpkin(pumpkin, 100)
                             if not playerNearby then
                                 if getgenv().HalloweenFarmSettings.FarmPumpkins then
-                                    local farmSuccess, exitReason = farmPumpkinPoint(pumpkin)
-                                    wait(0.3)
+                                    farmPumpkinPoint(pumpkin)
+                                    wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
                                 end
                             else
                                 print("[Halloween Farm] Player still nearby pumpkin, skipping...")
@@ -955,7 +992,7 @@ local function startHalloweenFarm()
                     })
                 end
                 
-                -- NEW: Check if in danger before server hopping
+                -- IMPROVED: Check if in danger before moving to safe spot
                 if getInDanger() then
                     print("[Halloween Farm] Player in danger! Waiting to be safe before server hop...")
                     if _G.NotificationLib then
@@ -989,7 +1026,7 @@ local function startHalloweenFarm()
                     rootPart.CFrame = CFrame.new(SAFE_SPOT)
                 end
                 
-                wait(0.5)
+                wait(0.5) -- OPTIMIZED: Reduced from 1 second to 0.5 seconds
                 
                 if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
                     performServerHop()
@@ -1014,15 +1051,15 @@ local function startHalloweenFarm()
                 if posKey then
                     blacklistedPumpkins[posKey] = true
                 end
-                wait(0.3)
+                wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
                 continue
             end
             
             if getgenv().HalloweenFarmSettings.FarmPumpkins then
-                local farmSuccess, exitReason = farmPumpkinPoint(nearestPumpkin)
-                wait(0.3)
+                farmPumpkinPoint(nearestPumpkin)
+                wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
             else
-                wait(0.3)
+                wait(0.3) -- OPTIMIZED: Reduced from 1 second to 0.3 seconds
             end
         end
         

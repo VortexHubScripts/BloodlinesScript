@@ -1193,4 +1193,4 @@ HalloweenFarm.startAutoPickupCandy = startAutoPickupCandy
 HalloweenFarm.stopAutoPickupCandy = stopAutoPickupCandy
 HalloweenFarm.autoFillBasket = autoFillBasket
 
-return HalloweenFar
+return HalloweenFarm

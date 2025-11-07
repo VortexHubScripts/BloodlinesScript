@@ -176,7 +176,7 @@ local blacklistedPumpkins = {}
 local lastKnownPumpkinPosition = nil
 
 -- Safe spot position
-local SAFE_SPOT = Vector3.new(-2950.580, 321.173, -275.704)
+local SAFE_SPOT = Vector3.new(-2950, 321, -275)
 
 -- Helper function to get inDanger state (now reads from global)
 local function getInDanger()

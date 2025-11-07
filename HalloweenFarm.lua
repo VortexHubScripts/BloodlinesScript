@@ -1022,46 +1022,55 @@ local function startHalloweenFarm()
                     })
                 end
                 
-                -- IMPROVED: Check if in danger before moving to safe spot
+                -- Start constant teleport to safe spot
+                print("[Halloween Farm] Starting constant teleport to safe spot before server hop...")
+                local safeSpotConnection = constantTeleportToSafeSpot()
+                table.insert(halloweenFarmConnections, safeSpotConnection)
+                
+                -- IMPROVED: Check if in danger before server hopping
                 if getInDanger() then
-                    print("[Halloween Farm] Player in danger! Waiting to be safe before server hop...")
+                    print("[Halloween Farm] Player in danger! Staying at safe spot until safe...")
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
                             Title = "Halloween Farm",
-                            Text = "In combat! Waiting to be safe...",
+                            Text = "In combat! Staying at safe spot...",
                             Duration = 3
                         })
                     end
                     
-                    -- Wait until out of danger
+                    -- Wait until out of danger while constantly teleporting
                     while getInDanger() do
                         wait(0.5)
-                        print("[Halloween Farm] Still in danger, waiting...")
+                        print("[Halloween Farm] Still in danger, staying at safe spot...")
                     end
                     
-                    print("[Halloween Farm] Out of danger! Proceeding to safe spot...")
+                    print("[Halloween Farm] Out of danger! Proceeding with server hop...")
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
                             Title = "Halloween Farm",
-                            Text = "Out of combat! Moving to safe spot...",
+                            Text = "Out of combat! Server hopping now...",
                             Duration = 3
                         })
                     end
                 end
                 
-                print("[Halloween Farm] Moving to safe spot before server hop...")
-                local playerData = getPlayerData()
-                local rootPart = playerData and playerData.rootPart
-                if rootPart then
-                    rootPart.CFrame = CFrame.new(SAFE_SPOT)
-                end
+                -- Keep teleporting for a bit longer to ensure stability
+                wait(2)
                 
-                wait(0.5) -- OPTIMIZED: Reduced from 1 second to 0.5 seconds
+                -- Keep teleporting for a bit longer to ensure stability
+                wait(2)
                 
                 if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
+                    -- Disconnect the safe spot connection before server hop
+                    -- (it will continue until the teleport happens)
+                    print("[Halloween Farm] Attempting server hop while at safe spot...")
                     performServerHop()
                     break
                 else
+                    -- Stop the constant teleport if not server hopping
+                    if safeSpotConnection then
+                        safeSpotConnection:Disconnect()
+                    end
                     print("[Halloween Farm] Server hop disabled, stopping farm...")
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({

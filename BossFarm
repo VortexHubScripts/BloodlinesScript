@@ -1,72 +1,37 @@
--- Boss Farm Module for Bloodlines (Rewritten)
--- Improved version with bug fixes and better stability
+-- Boss Farm Module for Bloodlines (Optimized & Integrated)
+-- Designed to work seamlessly with main Bloodlines script
 
 local BossFarm = {}
 
 -- ============================================
--- SERVICES
+-- SERVICES & DEPENDENCIES
 -- ============================================
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
+local dataEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataEvent")
 
 -- ============================================
 -- SETTINGS
 -- ============================================
 getgenv().BossFarmSettings = {
     Enabled = false,
-    SelectedBoss = "Wooden Golem",
-    ServerHopWhenComplete = true,
-    RespawnWaitTime = 120,
-    EnableHalloweenBossFarm = false,
-    AttackInterval = 0.7,
+    SelectedBosses = {},
+    ServerHopIfChakraSense = false,
+    ServerHopIfNoBoss = false,
+    AttackInterval = 0.5,
+    HealthCheckInterval = 0.3,
     PlayerDetectionRadius = 100,
-    HealthCheckInterval = 0.5
+    FarmHeightOffset = 15,
+    SafeHeightOffset = 30
 }
 
 -- ============================================
--- BOSS CONFIGURATIONS
+-- BOSS DATABASE
 -- ============================================
-local BOSS_CONFIGS = {
-    ["Wooden Golem"] = {
-        modelNames = {"Wooden Golem"},
-        farmHeight = 15,
-        safeHeight = 30,
-        positionAbove = true,
-        dangerousAnimations = {
-            ["rbxassetid://120758909308511"] = true,
-            ["rbxassetid://116907126244057"] = true
-        },
-        minPlayers = 10
-    },
-    
-    ["Chakra Knight"] = {
-        modelNames = {"Chakra Knight", "Hallowed Chakra Knight"},
-        farmHeight = 15,
-        safeHeight = 25,
-        positionAbove = false,
-        dangerousAnimations = {
-            ["rbxassetid://10141233349"] = true
-        },
-        minPlayers = 10
-    },
-    
-    ["Tairock"] = {
-        modelNames = {"Tairock", "Hallowed Tairock"},
-        farmHeight = 11,
-        safeHeight = 30,
-        positionAbove = false,
-        dangerousAnimations = {},
-        minPlayers = 10
-    }
-}
-
--- ============================================
--- CONSTANTS
--- ============================================
-local SAFE_SPOT = Vector3.new(-2950.580, 321.173, -275.704)
-local BOSS_DATABASE = {
+local bossDatabase = {
+    "Barbarit The Hallowed",
     "Wooden Golem",
     "Chakra Knight",
     "Hallowed Chakra Knight",
@@ -74,16 +39,66 @@ local BOSS_DATABASE = {
     "Hallowed Tairock"
 }
 
+local BOSS_CONFIGS = {
+    ["Barbarit The Hallowed"] = {
+        farmHeight = 16,
+        safeHeight = 55,
+        positionAbove = true,
+        dangerousAnimations = {
+            ["rbxassetid://9954909571"] = true
+        }
+    },
+    ["Wooden Golem"] = {
+        farmHeight = 15,
+        safeHeight = 30,
+        positionAbove = true,
+        dangerousAnimations = {
+            ["rbxassetid://120758909308511"] = true,
+            ["rbxassetid://116907126244057"] = true
+        }
+    },
+    ["Chakra Knight"] = {
+        farmHeight = 15,
+        safeHeight = 25,
+        positionAbove = false,
+        dangerousAnimations = {
+            ["rbxassetid://10141233349"] = true
+        }
+    },
+    ["Hallowed Chakra Knight"] = {
+        farmHeight = 15,
+        safeHeight = 25,
+        positionAbove = false,
+        dangerousAnimations = {
+            ["rbxassetid://10141233349"] = true
+        }
+    },
+    ["Tairock"] = {
+        farmHeight = 11,
+        safeHeight = 30,
+        positionAbove = false,
+        dangerousAnimations = {}
+    },
+    ["Hallowed Tairock"] = {
+        farmHeight = 11,
+        safeHeight = 30,
+        positionAbove = false,
+        dangerousAnimations = {}
+    }
+}
+
+local SAFE_SPOT = Vector3.new(-2950.580, 321.173, -275.704)
+
 -- ============================================
 -- STATE MANAGEMENT
 -- ============================================
 local State = {
-    farmRunning = false,
+    running = false,
     currentBoss = nil,
     connections = {},
-    animationTrackers = {},
+    animationStates = {},
     lastBossPosition = nil,
-    healthThresholdType = "max",
+    healthThreshold = 0,
     farmThread = nil
 }
 
@@ -92,24 +107,22 @@ local State = {
 -- ============================================
 local Utils = {}
 
-function Utils.notify(title, text, duration)
-    if _G.NotificationLib then
-        _G.NotificationLib:MakeNotification({
-            Title = title,
-            Text = text,
-            Duration = duration or 3
-        })
-    end
-end
-
 function Utils.log(message, level)
     local prefix = "[Boss Farm]"
     if level == "warn" then
         warn(prefix, message)
-    elseif level == "error" then
-        error(prefix .. " " .. message)
     else
         print(prefix, message)
+    end
+end
+
+function Utils.notify(text, duration)
+    if _G.NotificationLib then
+        _G.NotificationLib:MakeNotification({
+            Title = "Boss Farm",
+            Text = text,
+            Duration = duration or 3
+        })
     end
 end
 
@@ -129,25 +142,6 @@ function Utils.getPlayerData()
     }
 end
 
-function Utils.isHallowedBoss(bossName)
-    return string.find(bossName, "Hallowed") ~= nil
-end
-
-function Utils.getBaseBossName(bossName)
-    return string.gsub(bossName, "Hallowed ", "")
-end
-
-function Utils.getBossConfig(modelName)
-    for baseName, config in pairs(BOSS_CONFIGS) do
-        for _, variant in ipairs(config.modelNames) do
-            if variant == modelName then
-                return config, baseName
-            end
-        end
-    end
-    return nil, nil
-end
-
 function Utils.isValidBoss(boss)
     if not boss or not boss.Parent or not boss:IsA("Model") then
         return false
@@ -159,184 +153,42 @@ function Utils.isValidBoss(boss)
     return humanoid and rootPart and humanoid.Health > 0
 end
 
-function Utils.getInDanger()
-    return getgenv().inDanger or false
-end
-
 function Utils.disconnectAll(connections)
     for i = #connections, 1, -1 do
-        local connection = connections[i]
-        if connection and typeof(connection) == "RBXScriptConnection" then
-            pcall(function() connection:Disconnect() end)
+        local conn = connections[i]
+        if conn and typeof(conn) == "RBXScriptConnection" then
+            pcall(function() conn:Disconnect() end)
         end
         connections[i] = nil
     end
 end
 
--- ============================================
--- BOSS ESP SYSTEM
--- ============================================
-getgenv().BossESPSettings = {
-    Enabled = false,
-    Show = {
-        Name = true,
-        Health = true,
-        Distance = true,
-    },
-    TextSize = 18,
-    MaxDistance = 99999
-}
-
-getgenv().ActiveBossESP = {}
-
-local ESP = {}
-
-function ESP.create(boss)
-    if not boss or getgenv().ActiveBossESP[boss] then return end
-    
-    local esp = {
-        NameText = Drawing.new("Text"),
-        HealthText = Drawing.new("Text"),
-        active = true
-    }
-    
-    esp.NameText.Color = Color3.fromRGB(255, 0, 0)
-    esp.NameText.Size = getgenv().BossESPSettings.TextSize
-    esp.NameText.Outline = true
-    esp.NameText.Center = true
-    esp.NameText.Visible = false
-    
-    esp.HealthText.Color = Color3.fromRGB(0, 255, 0)
-    esp.HealthText.Size = getgenv().BossESPSettings.TextSize
-    esp.HealthText.Outline = true
-    esp.HealthText.Center = true
-    esp.HealthText.Visible = false
-    
-    getgenv().ActiveBossESP[boss] = esp
-    
-    ESP.update(boss, esp)
-    
-    boss.Destroying:Connect(function()
-        ESP.remove(boss)
-    end)
-end
-
-function ESP.update(boss, esp)
-    local connection
-    connection = RunService.RenderStepped:Connect(function()
-        if not esp.active or not getgenv().BossESPSettings.Enabled or not Utils.isValidBoss(boss) then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            
-            if not Utils.isValidBoss(boss) then
-                ESP.remove(boss)
-                if connection then connection:Disconnect() end
-            end
-            return
-        end
-        
-        local rootPart = boss:FindFirstChild("HumanoidRootPart")
-        local humanoid = boss:FindFirstChildOfClass("Humanoid")
-        local camera = workspace.CurrentCamera
-        
-        if not rootPart or not humanoid or not camera then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            return
-        end
-        
-        local vector, onScreen = camera:WorldToViewportPoint(rootPart.Position)
-        
-        if not onScreen then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            return
-        end
-        
-        local distance = (camera.CFrame.Position - rootPart.Position).Magnitude
-        local settings = getgenv().BossESPSettings
-        
-        if distance > settings.MaxDistance then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            return
-        end
-        
-        local info = {}
-        if settings.Show.Name then
-            table.insert(info, "[" .. boss.Name .. "]")
-        end
-        if settings.Show.Distance then
-            table.insert(info, string.format("[%dm]", math.floor(distance)))
-        end
-        
-        esp.NameText.Text = table.concat(info, " ")
-        esp.NameText.Size = settings.TextSize
-        esp.NameText.Position = Vector2.new(vector.X, vector.Y - 20)
-        esp.NameText.Visible = true
-        
-        if settings.Show.Health and humanoid.Health > 0 then
-            esp.HealthText.Text = string.format("[%d/%d HP]", 
-                math.floor(humanoid.Health), 
-                math.floor(humanoid.MaxHealth))
-            esp.HealthText.Size = settings.TextSize
-            esp.HealthText.Position = Vector2.new(vector.X, vector.Y)
-            esp.HealthText.Visible = true
-        else
-            esp.HealthText.Visible = false
-        end
-    end)
-end
-
-function ESP.remove(boss)
-    local esp = getgenv().ActiveBossESP[boss]
-    if esp then
-        esp.active = false
-        pcall(function() esp.NameText:Remove() end)
-        pcall(function() esp.HealthText:Remove() end)
-        getgenv().ActiveBossESP[boss] = nil
-    end
-end
-
-function ESP.initialize()
-    -- Scan existing bosses
-    for _, child in pairs(workspace:GetChildren()) do
-        if table.find(BOSS_DATABASE, child.Name) and child:IsA("Model") then
-            task.spawn(ESP.create, child)
-        end
-    end
-    
-    -- Monitor new bosses
-    workspace.ChildAdded:Connect(function(child)
-        if table.find(BOSS_DATABASE, child.Name) and child:IsA("Model") then
-            task.wait(0.1) -- Small delay to ensure model is fully loaded
-            ESP.create(child)
-        end
-    end)
+function Utils.getInDanger()
+    return getgenv().inDanger or false
 end
 
 -- ============================================
 -- BOSS DETECTION
 -- ============================================
-local BossDetection = {}
+local Detection = {}
 
-function BossDetection.findBoss(bossName)
-    local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
-    
+function Detection.findBoss(bossName)
     for _, child in pairs(workspace:GetChildren()) do
-        if not Utils.isValidBoss(child) then continue end
-        
-        local baseName = Utils.getBaseBossName(child.Name)
-        local isHallowed = Utils.isHallowedBoss(child.Name)
-        
-        if halloweenMode then
-            if isHallowed and baseName == bossName then
-                Utils.log("Found Hallowed variant: " .. child.Name)
-                return child
-            end
-        else
-            if child.Name == bossName or baseName == bossName then
-                return child
+        if child.Name == bossName and Utils.isValidBoss(child) then
+            return child
+        end
+    end
+    return nil
+end
+
+function Detection.findAnySelectedBoss()
+    local selectedBosses = getgenv().BossFarmSettings.SelectedBosses
+    
+    for bossName, isSelected in pairs(selectedBosses) do
+        if isSelected then
+            local boss = Detection.findBoss(bossName)
+            if boss then
+                return boss
             end
         end
     end
@@ -344,7 +196,7 @@ function BossDetection.findBoss(bossName)
     return nil
 end
 
-function BossDetection.isPlayerNearby(boss, maxDistance)
+function Detection.isPlayerNearby(boss, radius)
     local rootPart = boss:FindFirstChild("HumanoidRootPart")
     if not rootPart then return false end
     
@@ -355,7 +207,7 @@ function BossDetection.isPlayerNearby(boss, maxDistance)
                 local playerRoot = character:FindFirstChild("HumanoidRootPart")
                 if playerRoot then
                     local distance = (playerRoot.Position - rootPart.Position).Magnitude
-                    if distance <= maxDistance then
+                    if distance <= radius then
                         return true, player.Name, math.floor(distance)
                     end
                 end
@@ -369,10 +221,10 @@ end
 -- ============================================
 -- ANIMATION TRACKING
 -- ============================================
-local AnimationTracker = {}
+local Animation = {}
 
-function AnimationTracker.setup(boss, config)
-    if State.animationTrackers[boss] then return end
+function Animation.setup(boss, config)
+    if not config.dangerousAnimations then return end
     
     local humanoid = boss:FindFirstChildOfClass("Humanoid")
     if not humanoid then return end
@@ -380,39 +232,34 @@ function AnimationTracker.setup(boss, config)
     local animator = humanoid:FindFirstChildOfClass("Animator")
     if not animator then return end
     
-    State.animationTrackers[boss] = {
-        dangerous = false,
-        currentAnimId = nil
-    }
+    State.animationStates[boss] = { dangerous = false }
     
-    local connection = animator.AnimationPlayed:Connect(function(track)
+    local conn = animator.AnimationPlayed:Connect(function(track)
         local animId = track.Animation.AnimationId
         
         if config.dangerousAnimations[animId] then
-            Utils.log("Dangerous animation detected: " .. animId)
-            State.animationTrackers[boss].dangerous = true
-            State.animationTrackers[boss].currentAnimId = animId
+            State.animationStates[boss].dangerous = true
+            Utils.log("Dangerous animation detected!")
             
             track.Stopped:Connect(function()
-                Utils.log("Dangerous animation ended: " .. animId)
-                if State.animationTrackers[boss] then
-                    State.animationTrackers[boss].dangerous = false
-                    State.animationTrackers[boss].currentAnimId = nil
+                if State.animationStates[boss] then
+                    State.animationStates[boss].dangerous = false
+                    Utils.log("Dangerous animation ended")
                 end
             end)
         end
     end)
     
-    table.insert(State.connections, connection)
+    table.insert(State.connections, conn)
 end
 
-function AnimationTracker.isDangerous(boss)
-    local tracker = State.animationTrackers[boss]
-    return tracker and tracker.dangerous or false
+function Animation.isDangerous(boss)
+    local state = State.animationStates[boss]
+    return state and state.dangerous or false
 end
 
-function AnimationTracker.cleanup(boss)
-    State.animationTrackers[boss] = nil
+function Animation.cleanup(boss)
+    State.animationStates[boss] = nil
 end
 
 -- ============================================
@@ -424,51 +271,48 @@ function Teleport.toSafeSpot(continuous)
     local playerData = Utils.getPlayerData()
     if not playerData then return nil end
     
-    Utils.log("Teleporting to safe spot" .. (continuous and " (continuous)" or ""))
-    Utils.notify("Boss Farm", "Moving to safe spot...", 2)
+    Utils.log("Moving to safe spot" .. (continuous and " (continuous)" or ""))
     
     if not continuous then
         playerData.rootPart.CFrame = CFrame.new(SAFE_SPOT)
         return nil
     end
     
-    local connection = RunService.Heartbeat:Connect(function()
-        if playerData.rootPart and playerData.rootPart.Parent then
-            playerData.rootPart.CFrame = CFrame.new(SAFE_SPOT)
+    local conn = RunService.Heartbeat:Connect(function()
+        local pData = Utils.getPlayerData()
+        if pData and pData.rootPart and pData.rootPart.Parent then
+            pData.rootPart.CFrame = CFrame.new(SAFE_SPOT)
         end
     end)
     
-    table.insert(State.connections, connection)
-    return connection
+    table.insert(State.connections, conn)
+    return conn
 end
 
 function Teleport.toBoss(boss, config)
     if not Utils.isValidBoss(boss) then return nil end
-    
-    local playerData = Utils.getPlayerData()
-    if not playerData then return nil end
     
     local bossRoot = boss:FindFirstChild("HumanoidRootPart")
     if not bossRoot then return nil end
     
     State.lastBossPosition = bossRoot.Position
     
-    local connection = RunService.Heartbeat:Connect(function()
-        if not State.farmRunning or not getgenv().BossFarmSettings.Enabled then return end
+    local conn = RunService.Heartbeat:Connect(function()
+        if not State.running then return end
         
         local pData = Utils.getPlayerData()
         if not pData then return end
         
-        -- Update last known position if boss still exists
+        -- Update position if boss still exists
         if bossRoot and bossRoot.Parent then
             State.lastBossPosition = bossRoot.Position
         end
         
-        -- Determine height based on animation state
-        local isDangerous = AnimationTracker.isDangerous(boss)
+        -- Check for dangerous animation
+        local isDangerous = Animation.isDangerous(boss)
         local height = isDangerous and config.safeHeight or config.farmHeight
         
-        -- Calculate position (above or below)
+        -- Calculate target position
         local yOffset = config.positionAbove and height or -height
         local targetPos = State.lastBossPosition + Vector3.new(0, yOffset, 0)
         local lookAt = CFrame.new(targetPos, State.lastBossPosition)
@@ -476,8 +320,8 @@ function Teleport.toBoss(boss, config)
         pData.rootPart.CFrame = lookAt
     end)
     
-    table.insert(State.connections, connection)
-    return connection
+    table.insert(State.connections, conn)
+    return conn
 end
 
 -- ============================================
@@ -490,8 +334,8 @@ function ServerHop.execute()
     
     -- Wait if in danger
     if Utils.getInDanger() then
-        Utils.log("Player in combat! Waiting for safety...")
-        Utils.notify("Boss Farm", "In combat! Waiting...", 3)
+        Utils.log("In combat, waiting...")
+        Utils.notify("In combat! Waiting...", 3)
         
         Teleport.toSafeSpot(false)
         
@@ -499,16 +343,11 @@ function ServerHop.execute()
             task.wait(0.5)
         end
         
-        Utils.log("Out of combat! Proceeding with server hop...")
-        Utils.notify("Boss Farm", "Server hopping now...", 3)
+        Utils.log("Out of combat, proceeding...")
         task.wait(1)
     end
     
-    local maxAttempts = 5
-    
-    for attempt = 1, maxAttempts do
-        Utils.log(string.format("Server hop attempt %d/%d", attempt, maxAttempts))
-        
+    for attempt = 1, 5 do
         local success = pcall(function()
             local playerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
             if not playerGui then return end
@@ -516,41 +355,23 @@ function ServerHop.execute()
             local clientGui = playerGui:WaitForChild("ClientGui", 5)
             if not clientGui then return end
             
-            -- Try to find server list
             local list = ServerHop.findServerList(clientGui)
-            if not list then
-                Utils.log("Could not find server list", "warn")
-                return
-            end
+            if not list then return end
             
-            -- Find valid servers
             local validServers = ServerHop.getValidServers(list)
+            if #validServers == 0 then return end
             
-            if #validServers == 0 then
-                Utils.log("No valid servers found", "warn")
-                return
-            end
-            
-            -- Join random valid server
             local randomServer = validServers[math.random(1, #validServers)]
-            Utils.log(string.format("Joining server with %d players...", randomServer.playerCount))
             
-            for _, connection in pairs(getconnections(randomServer.button.MouseButton1Click)) do
-                connection:Fire()
+            for _, conn in pairs(getconnections(randomServer.button.MouseButton1Click)) do
+                conn:Fire()
             end
         end)
         
-        if not success then
-            Utils.log("Server hop attempt failed", "warn")
-        end
-        
         task.wait(2)
         
-        if attempt < maxAttempts then
-            Utils.notify("Boss Farm", string.format("Retry %d/%d", attempt + 1, maxAttempts), 2)
-        else
-            Utils.log("Max server hop attempts reached")
-            Utils.notify("Boss Farm", "Failed to find available server", 3)
+        if attempt < 5 then
+            Utils.notify(string.format("Retry %d/5", attempt + 1), 2)
         end
     end
 end
@@ -591,7 +412,6 @@ end
 
 function ServerHop.getValidServers(list)
     local validServers = {}
-    local minPlayers = BOSS_CONFIGS[getgenv().BossFarmSettings.SelectedBoss].minPlayers or 10
     
     for _, frame in ipairs(list:GetChildren()) do
         if frame:IsA("Frame") and frame.Name == "ServerTemplate" then
@@ -601,9 +421,8 @@ function ServerHop.getValidServers(list)
             if playersLabel and joinButton and joinButton:IsA("TextButton") then
                 local playerCount = tonumber(playersLabel.Text:match("%d+"))
                 
-                if playerCount and playerCount >= minPlayers then
+                if playerCount and playerCount >= 10 then
                     table.insert(validServers, {
-                        frame = frame,
                         button = joinButton,
                         playerCount = playerCount
                     })
@@ -621,14 +440,13 @@ end
 local Combat = {}
 
 function Combat.startAttacking()
-    local dataEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataEvent")
     local settings = getgenv().BossFarmSettings
     
-    local attackThread = task.spawn(function()
-        while State.farmRunning and State.currentBoss do
+    local thread = task.spawn(function()
+        while State.running and State.currentBoss do
             task.wait(settings.AttackInterval)
             
-            if State.farmRunning and State.currentBoss then
+            if State.running and State.currentBoss then
                 pcall(function()
                     dataEvent:FireServer("CheckMeleeHit", nil, "NormalAttack", false)
                 end)
@@ -636,99 +454,142 @@ function Combat.startAttacking()
         end
     end)
     
-    return attackThread
+    return thread
 end
 
 function Combat.enableNoclip()
-    local connection = RunService.Stepped:Connect(function()
-        if not State.farmRunning or not getgenv().BossFarmSettings.Enabled then return end
+    local conn = RunService.Stepped:Connect(function()
+        if not State.running then return end
         
-        local playerData = Utils.getPlayerData()
-        if not playerData then return end
+        local pData = Utils.getPlayerData()
+        if not pData then return end
         
-        for _, part in pairs(playerData.character:GetDescendants()) do
+        for _, part in pairs(pData.character:GetDescendants()) do
             if part:IsA('BasePart') then
                 part.CanCollide = false
             end
         end
     end)
     
-    table.insert(State.connections, connection)
-    return connection
+    table.insert(State.connections, conn)
+    return conn
 end
 
 -- ============================================
--- BOSS FARMING LOGIC
+-- CHAKRA SENSE MONITOR
+-- ============================================
+local ChakraSense = {}
+
+function ChakraSense.setup()
+    if not getgenv().BossFarmSettings.ServerHopIfChakraSense then return end
+    
+    local cooldowns = ReplicatedStorage:FindFirstChild("Cooldowns")
+    if not cooldowns then return end
+    
+    local function onChakraSenseUsed(playerName)
+        if not State.running then return end
+        if not getgenv().BossFarmSettings.ServerHopIfChakraSense then return end
+        
+        Utils.log(string.format("%s used Chakra Sense! Server hopping...", playerName))
+        Utils.notify("Chakra Sense detected! Server hopping...", 3)
+        
+        -- Stop farm and server hop
+        State.running = false
+        Farm.cleanup()
+        Teleport.toSafeSpot(false)
+        task.wait(1)
+        ServerHop.execute()
+    end
+    
+    local function watchPlayer(playerFolder)
+        local playerName = playerFolder.Name
+        if playerName == LocalPlayer.Name then return end
+        
+        playerFolder.ChildAdded:Connect(function(child)
+            if child:IsA("NumberValue") and child.Name == "Chakra Sense" then
+                onChakraSenseUsed(playerName)
+            end
+        end)
+    end
+    
+    for _, folder in pairs(cooldowns:GetChildren()) do
+        if folder:IsA("Folder") then
+            watchPlayer(folder)
+        end
+    end
+    
+    cooldowns.ChildAdded:Connect(function(folder)
+        if folder:IsA("Folder") then
+            watchPlayer(folder)
+        end
+    end)
+end
+
+-- ============================================
+-- FARM LOGIC
 -- ============================================
 local Farm = {}
 
 function Farm.start()
-    if State.farmRunning then
-        Utils.log("Farm already running", "warn")
+    if State.running then
+        Utils.log("Farm already running")
         return
     end
     
     State.farmThread = task.spawn(function()
-        State.farmRunning = true
+        State.running = true
+        Utils.notify("Boss auto-farm started!", 3)
         
-        local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
-        local modeText = halloweenMode and " [HALLOWEEN MODE]" or ""
+        -- Setup Chakra Sense monitoring
+        ChakraSense.setup()
         
-        Utils.log("Boss auto-farm started!" .. modeText)
-        Utils.notify("Boss Farm", "Auto-farm started!" .. modeText, 3)
-        
-        while getgenv().BossFarmSettings.Enabled do
+        while getgenv().BossFarmSettings.Enabled and State.running do
             Farm.cleanup()
             
-            local selectedBoss = getgenv().BossFarmSettings.SelectedBoss
-            local boss = BossDetection.findBoss(selectedBoss)
+            -- Find any selected boss
+            local boss = Detection.findAnySelectedBoss()
             
             if not boss then
-                local respawned = Farm.waitForRespawn(selectedBoss)
-                
-                if not respawned then
-                    if getgenv().BossFarmSettings.ServerHopWhenComplete then
-                        Teleport.toSafeSpot(false)
-                        task.wait(0.5)
-                        ServerHop.execute()
-                        break
-                    else
-                        Utils.log("Server hop disabled, stopping farm...")
-                        break
-                    end
-                end
-                
-                boss = BossDetection.findBoss(selectedBoss)
-            end
-            
-            if boss then
-                -- Check for nearby players
-                local playerNearby, playerName = BossDetection.isPlayerNearby(
-                    boss, 
-                    getgenv().BossFarmSettings.PlayerDetectionRadius
-                )
-                
-                if playerNearby then
-                    Utils.log(string.format("Player %s nearby, waiting...", playerName))
+                if getgenv().BossFarmSettings.ServerHopIfNoBoss then
+                    Utils.log("No selected bosses found, server hopping...")
+                    Utils.notify("No bosses found! Server hopping...", 3)
+                    Teleport.toSafeSpot(false)
+                    task.wait(1)
+                    ServerHop.execute()
+                    break
+                else
+                    Utils.log("No bosses found, waiting...")
                     task.wait(5)
                     continue
                 end
-                
-                -- Farm the boss
-                Farm.farmBoss(boss)
-                task.wait(0.3)
             end
+            
+            -- Check for nearby players
+            local playerNearby, playerName = Detection.isPlayerNearby(
+                boss, 
+                getgenv().BossFarmSettings.PlayerDetectionRadius
+            )
+            
+            if playerNearby then
+                Utils.log(string.format("Player %s nearby, waiting...", playerName))
+                task.wait(5)
+                continue
+            end
+            
+            -- Farm the boss
+            Farm.farmBoss(boss)
+            task.wait(0.5)
         end
         
-        State.farmRunning = false
+        State.running = false
         State.currentBoss = nil
-        Utils.log("Boss farm stopped")
+        Utils.log("Farm stopped")
     end)
 end
 
 function Farm.stop()
     getgenv().BossFarmSettings.Enabled = false
-    State.farmRunning = false
+    State.running = false
     State.currentBoss = nil
     
     Farm.cleanup()
@@ -738,169 +599,105 @@ function Farm.stop()
         State.farmThread = nil
     end
     
-    Utils.log("Boss farm stopped")
-    Utils.notify("Boss Farm", "Auto-farm stopped", 2)
+    Utils.notify("Auto-farm stopped", 2)
 end
 
 function Farm.cleanup()
     Utils.disconnectAll(State.connections)
     
-    -- Cleanup animation trackers
-    for boss, _ in pairs(State.animationTrackers) do
-        AnimationTracker.cleanup(boss)
+    for boss, _ in pairs(State.animationStates) do
+        Animation.cleanup(boss)
     end
-end
-
-function Farm.waitForRespawn(selectedBoss)
-    local halloweenMode = getgenv().BossFarmSettings.EnableHalloweenBossFarm
-    local searchText = halloweenMode and ("Hallowed " .. selectedBoss) or selectedBoss
-    
-    Utils.log("Boss not found, waiting for respawn...")
-    Utils.notify("Boss Farm", "Waiting for " .. searchText .. "...", 3)
-    
-    local waitStartTime = tick()
-    local waitTime = getgenv().BossFarmSettings.RespawnWaitTime
-    local boss = nil
-    
-    while not boss and (tick() - waitStartTime) < waitTime do
-        if not getgenv().BossFarmSettings.Enabled then
-            return false
-        end
-        
-        task.wait(2)
-        boss = BossDetection.findBoss(selectedBoss)
-    end
-    
-    if not boss then
-        Utils.log("Boss did not respawn in time!")
-        Utils.notify("Boss Farm", searchText .. " did not respawn!", 3)
-        return false
-    end
-    
-    return true
 end
 
 function Farm.farmBoss(boss)
-    local playerData = Utils.getPlayerData()
-    if not playerData then
-        Utils.log("Could not get player data", "warn")
-        return
-    end
+    local pData = Utils.getPlayerData()
+    if not pData then return end
     
-    local config, configName = Utils.getBossConfig(boss.Name)
+    local config = BOSS_CONFIGS[boss.Name]
     if not config then
-        Utils.log("No config found for boss: " .. boss.Name, "warn")
+        Utils.log("No config for boss: " .. boss.Name, "warn")
         return
     end
     
     State.currentBoss = boss.Name
+    State.healthThreshold = pData.humanoid.MaxHealth * 0.5
     
-    -- Setup
-    AnimationTracker.setup(boss, config)
+    Animation.setup(boss, config)
     
-    -- Calculate health threshold
-    local healthThreshold
-    if State.healthThresholdType == "max" then
-        healthThreshold = playerData.humanoid.MaxHealth * 0.5
-    else
-        healthThreshold = playerData.humanoid.Health * 0.5
-    end
+    Utils.log("Farming " .. boss.Name .. "...")
+    Utils.notify("Farming " .. boss.Name .. "...", 3)
     
-    local hallowedText = Utils.isHallowedBoss(boss.Name) and " [HALLOWED]" or ""
-    Utils.log("Farming " .. boss.Name .. hallowedText .. "...")
-    Utils.notify("Boss Farm", "Farming " .. boss.Name .. hallowedText, 3)
-    
-    -- Start combat systems
+    -- Start systems
     local attackThread = Combat.startAttacking()
     Combat.enableNoclip()
     Teleport.toBoss(boss, config)
     
-    -- Main farming loop
-    local exitReason = Farm.monitorFarmLoop(boss, healthThreshold)
+    -- Monitor loop
+    Farm.monitorLoop(boss)
     
     -- Cleanup
     if attackThread then
         pcall(function() task.cancel(attackThread) end)
     end
-    AnimationTracker.cleanup(boss)
-    
-    Utils.log("Exiting farm loop: " .. exitReason)
+    Animation.cleanup(boss)
 end
 
-function Farm.monitorFarmLoop(boss, healthThreshold)
+function Farm.monitorLoop(boss)
     local settings = getgenv().BossFarmSettings
-    local checkInterval = settings.HealthCheckInterval
     local lastPlayerCheck = tick()
     
-    while State.farmRunning and State.currentBoss == boss.Name do
-        local playerData = Utils.getPlayerData()
-        if not playerData then
-            return "player_data_lost"
-        end
+    while State.running and State.currentBoss == boss.Name do
+        local pData = Utils.getPlayerData()
+        if not pData then break end
         
         -- Health check
-        if playerData.humanoid.Health < healthThreshold then
-            Utils.log(string.format("Health below threshold! (%.1f < %.1f)", 
-                playerData.humanoid.Health, healthThreshold))
-            
-            State.healthThresholdType = "current"
+        if pData.humanoid.Health < State.healthThreshold then
+            Utils.log("Health low! Going to safe spot...")
             Farm.cleanup()
             Teleport.toSafeSpot(true)
-            task.wait(2)
-            
-            return "low_health"
+            task.wait(3)
+            break
         end
         
         -- Boss defeated check
         if not Utils.isValidBoss(boss) then
             Utils.log("Boss defeated!")
-            Utils.notify("Boss Farm", boss.Name .. " defeated!", 3)
-            return "boss_defeated"
+            Utils.notify(boss.Name .. " defeated!", 3)
+            break
         end
         
-        -- Periodic player proximity check (every 2 seconds)
+        -- Player check (every 2 seconds)
         if tick() - lastPlayerCheck >= 2 then
             lastPlayerCheck = tick()
             
-            local playerNearby, playerName, distance = BossDetection.isPlayerNearby(
-                boss, 
+            local nearby, playerName = Detection.isPlayerNearby(
+                boss,
                 settings.PlayerDetectionRadius
             )
             
-            if playerNearby then
-                Utils.log(string.format("Player %s detected at %dm!", playerName, distance))
+            if nearby then
+                Utils.log(string.format("Player %s detected!", playerName))
                 Farm.cleanup()
                 Teleport.toSafeSpot(true)
                 task.wait(2)
-                return "player_nearby"
+                break
             end
         end
         
-        task.wait(checkInterval)
+        task.wait(settings.HealthCheckInterval)
     end
-    
-    return "farm_stopped"
 end
 
 -- ============================================
--- STATUS FUNCTIONS
+-- STATUS
 -- ============================================
 function BossFarm.getStatus()
     return {
-        running = State.farmRunning,
-        currentTarget = State.currentBoss,
-        healthThresholdType = State.healthThresholdType,
-        activeConnections = #State.connections
+        running = State.running,
+        currentBoss = State.currentBoss,
+        connectionCount = #State.connections
     }
-end
-
--- ============================================
--- INITIALIZATION
--- ============================================
-function BossFarm.initialize()
-    Utils.log("Initializing Boss Farm Module...")
-    ESP.initialize()
-    Utils.log("Boss Farm Module loaded successfully!")
 end
 
 -- ============================================
@@ -908,10 +705,7 @@ end
 -- ============================================
 BossFarm.start = Farm.start
 BossFarm.stop = Farm.stop
-BossFarm.bossDatabase = BOSS_DATABASE
+BossFarm.bossDatabase = bossDatabase
 BossFarm.BOSS_CONFIGS = BOSS_CONFIGS
-
--- Auto-initialize
-task.spawn(BossFarm.initialize)
 
 return BossFarm

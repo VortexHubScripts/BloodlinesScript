@@ -28,16 +28,27 @@ getgenv().BossFarmSettings = {
 }
 
 -- ============================================
--- BOSS DATABASE
+-- BOSS DATABASE & CONFIGURATIONS
 -- ============================================
-local bossDatabase = {
-    "Barbarit The Hallowed",
-    "Wooden Golem",
-    "Chakra Knight",
-    "Hallowed Chakra Knight",
-    "Tairock",
-    "Hallowed Tairock"
-}
+
+--[[
+    BOSS CONFIGURATION STRUCTURE:
+    
+    farmHeight: Distance from boss (positive = above, negative = below)
+    positionAbove: true = farm above boss, false = farm below boss
+    
+    dangerousAnimations: Table of animation IDs to avoid
+        - Can use "teleport" mode or "height" mode
+        - teleport: Teleports to specific position
+        - height: Moves to safeHeight offset
+    
+    animationResponse: "teleport" or "height" (default: "height")
+    safePosition: Vector3 position to teleport to (only for "teleport" mode)
+    safeHeight: Height offset when using "height" mode
+    
+    requiresSpawn: true if boss needs player input to spawn (for future implementation)
+    spawnFunction: Custom function to spawn boss (optional)
+]]
 
 local BOSS_CONFIGS = {
     ["Barbarit The Hallowed"] = {
@@ -46,46 +57,81 @@ local BOSS_CONFIGS = {
         positionAbove = true,
         dangerousAnimations = {
             ["rbxassetid://9954909571"] = true
-        }
+        },
+        animationResponse = "height", -- Move up when animation detected
+        requiresSpawn = false
     },
+    
     ["Wooden Golem"] = {
         farmHeight = 15,
-        safeHeight = 30,
         positionAbove = true,
         dangerousAnimations = {
             ["rbxassetid://120758909308511"] = true,
             ["rbxassetid://116907126244057"] = true
-        }
+        },
+        animationResponse = "teleport", -- Teleport to safe position
+        safePosition = Vector3.new(-2950.580, 321.173, -275.704), -- Safe spot position
+        requiresSpawn = false
     },
+    
     ["Chakra Knight"] = {
         farmHeight = 15,
         safeHeight = 25,
         positionAbove = false,
         dangerousAnimations = {
             ["rbxassetid://10141233349"] = true
-        }
+        },
+        animationResponse = "height",
+        requiresSpawn = false
     },
+    
     ["Hallowed Chakra Knight"] = {
         farmHeight = 15,
         safeHeight = 25,
         positionAbove = false,
         dangerousAnimations = {
             ["rbxassetid://10141233349"] = true
-        }
+        },
+        animationResponse = "height",
+        requiresSpawn = false
     },
+    
     ["Tairock"] = {
         farmHeight = 11,
         safeHeight = 30,
         positionAbove = false,
-        dangerousAnimations = {}
+        dangerousAnimations = {},
+        animationResponse = "height",
+        requiresSpawn = false
     },
+    
     ["Hallowed Tairock"] = {
         farmHeight = 11,
         safeHeight = 30,
         positionAbove = false,
-        dangerousAnimations = {}
+        dangerousAnimations = {},
+        animationResponse = "height",
+        requiresSpawn = false
+    },
+    
+    -- TEMPLATE FOR MANDA (requires spawn - to be implemented)
+    ["Manda"] = {
+        farmHeight = 20,
+        safeHeight = 40,
+        positionAbove = true,
+        dangerousAnimations = {},
+        animationResponse = "height",
+        requiresSpawn = true, -- Requires player input to spawn
+        -- spawnFunction will be added later when you explain the spawn process
     }
 }
+
+-- Generate boss database from configs
+local bossDatabase = {}
+for bossName, _ in pairs(BOSS_CONFIGS) do
+    table.insert(bossDatabase, bossName)
+end
+table.sort(bossDatabase)
 
 local SAFE_SPOT = Vector3.new(-2950.580, 321.173, -275.704)
 
@@ -96,10 +142,11 @@ local State = {
     running = false,
     currentBoss = nil,
     connections = {},
-    animationStates = {},
+    animationStates = {}, -- Stores {dangerous: bool, responseType: "teleport"|"height", safePos: Vector3?}
     lastBossPosition = nil,
     healthThreshold = 0,
-    farmThread = nil
+    farmThread = nil,
+    teleportMode = false -- true when in teleport evasion mode
 }
 
 -- ============================================
@@ -168,6 +215,46 @@ function Utils.getInDanger()
 end
 
 -- ============================================
+-- BOSS SPAWNING (FOR BOSSES THAT REQUIRE INPUT)
+-- ============================================
+local BossSpawn = {}
+
+--[[
+    This section handles bosses that require player input to spawn.
+    You'll need to provide the spawn logic for each boss.
+    
+    Example structure:
+    function BossSpawn.spawnManda()
+        -- Your spawn logic here
+        -- Return true if successful, false otherwise
+        return true
+    end
+]]
+
+function BossSpawn.canSpawn(bossName)
+    local config = BOSS_CONFIGS[bossName]
+    return config and not config.requiresSpawn
+end
+
+function BossSpawn.attemptSpawn(bossName)
+    local config = BOSS_CONFIGS[bossName]
+    if not config then return false end
+    
+    if not config.requiresSpawn then
+        return true -- Boss spawns naturally, no action needed
+    end
+    
+    -- Check if custom spawn function exists
+    if config.spawnFunction then
+        Utils.log(string.format("Attempting to spawn %s...", bossName))
+        return config.spawnFunction()
+    end
+    
+    Utils.log(string.format("%s requires spawn but no spawn function defined", bossName), "warn")
+    return false
+end
+
+-- ============================================
 -- BOSS DETECTION
 -- ============================================
 local Detection = {}
@@ -184,6 +271,7 @@ end
 function Detection.findAnySelectedBoss()
     local selectedBosses = getgenv().BossFarmSettings.SelectedBosses
     
+    -- Priority order: try to find bosses in the order they appear in the table
     for bossName, isSelected in pairs(selectedBosses) do
         if isSelected then
             local boss = Detection.findBoss(bossName)
@@ -194,6 +282,19 @@ function Detection.findAnySelectedBoss()
     end
     
     return nil
+end
+
+function Detection.getSelectedBossList()
+    local selectedBosses = getgenv().BossFarmSettings.SelectedBosses
+    local list = {}
+    
+    for bossName, isSelected in pairs(selectedBosses) do
+        if isSelected then
+            table.insert(list, bossName)
+        end
+    end
+    
+    return list
 end
 
 function Detection.isPlayerNearby(boss, radius)
@@ -232,19 +333,31 @@ function Animation.setup(boss, config)
     local animator = humanoid:FindFirstChildOfClass("Animator")
     if not animator then return end
     
-    State.animationStates[boss] = { dangerous = false }
+    State.animationStates[boss] = { 
+        dangerous = false,
+        responseType = config.animationResponse or "height",
+        safePosition = config.safePosition
+    }
     
     local conn = animator.AnimationPlayed:Connect(function(track)
         local animId = track.Animation.AnimationId
         
         if config.dangerousAnimations[animId] then
             State.animationStates[boss].dangerous = true
-            Utils.log("Dangerous animation detected!")
+            
+            -- Handle different response types
+            if config.animationResponse == "teleport" and config.safePosition then
+                State.teleportMode = true
+                Utils.log(string.format("Dangerous animation! Teleporting to safe position"))
+            else
+                Utils.log("Dangerous animation! Moving to safe height")
+            end
             
             track.Stopped:Connect(function()
                 if State.animationStates[boss] then
                     State.animationStates[boss].dangerous = false
-                    Utils.log("Dangerous animation ended")
+                    State.teleportMode = false
+                    Utils.log("Dangerous animation ended, resuming farm")
                 end
             end)
         end
@@ -256,6 +369,14 @@ end
 function Animation.isDangerous(boss)
     local state = State.animationStates[boss]
     return state and state.dangerous or false
+end
+
+function Animation.getResponseType(boss)
+    local state = State.animationStates[boss]
+    if state then
+        return state.responseType, state.safePosition
+    end
+    return "height", nil
 end
 
 function Animation.cleanup(boss)
@@ -310,14 +431,30 @@ function Teleport.toBoss(boss, config)
         
         -- Check for dangerous animation
         local isDangerous = Animation.isDangerous(boss)
-        local height = isDangerous and config.safeHeight or config.farmHeight
         
-        -- Calculate target position
-        local yOffset = config.positionAbove and height or -height
-        local targetPos = State.lastBossPosition + Vector3.new(0, yOffset, 0)
-        local lookAt = CFrame.new(targetPos, State.lastBossPosition)
-        
-        pData.rootPart.CFrame = lookAt
+        if isDangerous then
+            -- Get response type (teleport or height)
+            local responseType, safePos = Animation.getResponseType(boss)
+            
+            if responseType == "teleport" and safePos then
+                -- Teleport to specific safe position
+                pData.rootPart.CFrame = CFrame.new(safePos)
+            else
+                -- Move to safe height (original behavior)
+                local height = config.safeHeight or 30
+                local yOffset = config.positionAbove and height or -height
+                local targetPos = State.lastBossPosition + Vector3.new(0, yOffset, 0)
+                local lookAt = CFrame.new(targetPos, State.lastBossPosition)
+                pData.rootPart.CFrame = lookAt
+            end
+        else
+            -- Normal farming position
+            local height = config.farmHeight
+            local yOffset = config.positionAbove and height or -height
+            local targetPos = State.lastBossPosition + Vector3.new(0, yOffset, 0)
+            local lookAt = CFrame.new(targetPos, State.lastBossPosition)
+            pData.rootPart.CFrame = lookAt
+        end
     end)
     
     table.insert(State.connections, conn)

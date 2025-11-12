@@ -950,7 +950,8 @@ local function farmPumpkinPoint(pumpkin)
                     wait(1)
                     stopConstantSafeSpotTeleport()
                     
-                    -- Auto fill basket
+                    -- Auto fill basket (DISABLED)
+                    --[[
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
                             Title = "Halloween Farm",
@@ -960,6 +961,7 @@ local function farmPumpkinPoint(pumpkin)
                     end
                     
                     autoFillBasket()
+                    ]]--
                     
                     wait(1)
                     

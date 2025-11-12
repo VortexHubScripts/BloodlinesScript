@@ -378,6 +378,30 @@ local function getPlayerData()
     }
 end
 
+-- Helper function to check if anyone is actively sensing (defined at module level)
+local function isAnyoneActivelySensing()
+    -- Check if the table exists
+    if not getgenv().activeSenseUsers then 
+        print("[Halloween Farm] DEBUG: activeSenseUsers table not found")
+        return false 
+    end
+    
+    -- Count and log active sensors
+    local activeSensors = {}
+    for playerName, isActive in pairs(getgenv().activeSenseUsers) do
+        if isActive then
+            table.insert(activeSensors, playerName)
+        end
+    end
+    
+    if #activeSensors > 0 then
+        print("[Halloween Farm] DEBUG: Active sensors detected: " .. table.concat(activeSensors, ", "))
+        return true
+    end
+    
+    return false
+end
+
 -- Function to server hop with retry logic
 performServerHop = function()
     print("[Halloween Farm] Initiating fast server hop...")
@@ -790,17 +814,24 @@ local function farmPumpkinPoint(pumpkin)
     end)
     table.insert(halloweenFarmConnections, noclipConnection)
     
-    -- Continuous teleport loop
+    -- Continuous teleport loop with Safety Mode check
     local teleportConnection = RunService.Heartbeat:Connect(function()
         if halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled then
             if humanoidRootPart then
-                if main and main.Parent then
-                    lastKnownPumpkinPosition = main.Position
+                -- Check if Safety Mode is active and someone is actively sensing
+                if getgenv().HalloweenFarmSettings.SafetyMode and isAnyoneActivelySensing() then
+                    -- Teleport to safe spot instead of farming
+                    humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
+                else
+                    -- Normal farming behavior
+                    if main and main.Parent then
+                        lastKnownPumpkinPosition = main.Position
+                    end
+                    
+                    local farmPosition = lastKnownPumpkinPosition - Vector3.new(0, getgenv().HalloweenFarmSettings.PumpkinFarmDistance, 0)
+                    local lookAtPumpkin = CFrame.new(farmPosition, lastKnownPumpkinPosition)
+                    humanoidRootPart.CFrame = lookAtPumpkin
                 end
-                
-                local farmPosition = lastKnownPumpkinPosition - Vector3.new(0, getgenv().HalloweenFarmSettings.PumpkinFarmDistance, 0)
-                local lookAtPumpkin = CFrame.new(farmPosition, lastKnownPumpkinPosition)
-                humanoidRootPart.CFrame = lookAtPumpkin
             end
         end
     end)

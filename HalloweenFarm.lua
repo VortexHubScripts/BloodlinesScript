@@ -725,7 +725,8 @@ local function autoFillBasket()
     end
 end
 
--- Function to farm pumpkin point
+-- Modified farmPumpkinPoint function with two-tier health system
+
 local function farmPumpkinPoint(pumpkin)
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
@@ -741,8 +742,6 @@ local function farmPumpkinPoint(pumpkin)
     
     local pumpkinPosKey = getPumpkinPositionKey(pumpkin)
     
-    local healthThreshold = 50
-    
     if _G.NotificationLib then
         _G.NotificationLib:MakeNotification({
             Title = "Halloween Farm",
@@ -751,13 +750,12 @@ local function farmPumpkinPoint(pumpkin)
         })
     end
 
-    -- Attack thread (stops attacking when in safe spot or when someone is actively sensing)
+    -- Attack thread
     local attackThread = task.spawn(function()
         while halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" do
             wait(0.7)
 
             if halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" then
-                -- Don't attack if in safe spot or if someone is actively sensing
                 local atSafeSpot = (humanoidRootPart.Position - SAFE_SPOT).Magnitude < 10
                 local someoneIsSensing = getgenv().HalloweenFarmSettings.SafetyMode and isAnyoneActivelySensing()
                 
@@ -787,16 +785,12 @@ local function farmPumpkinPoint(pumpkin)
     local teleportConnection = RunService.Heartbeat:Connect(function()
         if halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled then
             if humanoidRootPart then
-                -- Check if Safety Mode is active and someone is actively sensing
                 if getgenv().HalloweenFarmSettings.SafetyMode and isAnyoneActivelySensing() then
-                    -- Teleport to safe spot instead of farming
                     humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
                     
-                    -- Track time in safe spot
                     if not safeSpotStartTime then
                         safeSpotStartTime = tick()
                     elseif (tick() - safeSpotStartTime) >= 30 then
-                        -- Been in safe spot for 30+ seconds with active sense, server hop
                         if _G.NotificationLib then
                             _G.NotificationLib:MakeNotification({
                                 Title = "Halloween Farm - Safety Mode",
@@ -810,10 +804,8 @@ local function farmPumpkinPoint(pumpkin)
                         end)
                     end
                 else
-                    -- Reset safe spot timer when not hiding
                     safeSpotStartTime = nil
                     
-                    -- Normal farming behavior
                     if main and main.Parent then
                         lastKnownPumpkinPosition = main.Position
                     end
@@ -827,13 +819,13 @@ local function farmPumpkinPoint(pumpkin)
     end)
     table.insert(halloweenFarmConnections, teleportConnection)
     
-    -- Main farming loop
+    -- Main farming loop with two-tier health system
     local pumpkinDestroyed = false
     local lowHealthExit = false
     local criticalHealth = false
     
     while halloweenFarmRunning and currentHalloweenTarget == "Pumpkin Point" do
-        -- Health check with two-tier system
+        -- First tier: Health at 50 or below - blacklist pumpkin and warn
         if humanoid.Health <= 50 and not lowHealthExit then
             lowHealthExit = true
             if _G.NotificationLib then
@@ -845,7 +837,7 @@ local function farmPumpkinPoint(pumpkin)
             end
         end
         
-        -- Critical health check (25 HP or below after first warning)
+        -- Second tier: Health at 25 or below (after first warning) - go to safe spot and server hop
         if lowHealthExit and humanoid.Health <= 25 and not criticalHealth then
             criticalHealth = true
             
@@ -857,15 +849,18 @@ local function farmPumpkinPoint(pumpkin)
                 })
             end
             
+            -- Blacklist the pumpkin
             if pumpkinPosKey then
                 blacklistedPumpkins[pumpkinPosKey] = true
             end
             
+            -- Stop teleporting to pumpkin
             if teleportConnection then
                 teleportConnection:Disconnect()
                 teleportConnection = nil
             end
             
+            -- Teleport to safe spot
             humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
             
             -- Wait to be out of danger, then server hop
@@ -950,7 +945,7 @@ local function farmPumpkinPoint(pumpkin)
                 local itemsSpawned, itemDetected = waitForItemsNearPlayer()
                 
                 if itemsSpawned and itemDetected then
-                    -- Disable Auto-Equip Weapon
+                    -- [Rest of candy collection logic remains the same]
                     local wasAutoEquipEnabled = getgenv().AutoEquipSettings and getgenv().AutoEquipSettings.Enabled
                     if wasAutoEquipEnabled then
                         getgenv().AutoEquipSettings.Enabled = false
@@ -959,14 +954,12 @@ local function farmPumpkinPoint(pumpkin)
                         end
                     end
                     
-                    -- Select Treat Basket
                     pcall(function()
                         ReplicatedStorage.Events.DataEvent:FireServer("Item", "Selected", "Treat Basket")
                     end)
                     
                     wait(1)
                     
-                    -- Check if Treat Basket is equipped
                     local basketEquipped = false
                     local checkStartTime = tick()
                     local maxWaitTime = 5
@@ -988,20 +981,16 @@ local function farmPumpkinPoint(pumpkin)
                             })
                         end
                         
-                        -- Stop teleporting to pumpkin
                         if teleportConnection then
                             teleportConnection:Disconnect()
                             teleportConnection = nil
                         end
                         
-                        -- Teleport to safe spot
                         humanoidRootPart.CFrame = CFrame.new(SAFE_SPOT)
                         wait(1)
                         
-                        -- Auto fill basket
                         autoFillBasket()
                         
-                        -- Wait for basket to fill
                         local fillStartTime = tick()
                         local maxFillTime = 15
                         
@@ -1013,7 +1002,6 @@ local function farmPumpkinPoint(pumpkin)
                             wait(0.5)
                         end
                         
-                        -- Consume Treat Basket
                         if _G.NotificationLib then
                             _G.NotificationLib:MakeNotification({
                                 Title = "Halloween Farm",
@@ -1028,7 +1016,6 @@ local function farmPumpkinPoint(pumpkin)
                         
                         wait(1)
                         
-                        -- Re-enable Auto-Equip Weapon
                         if wasAutoEquipEnabled then
                             getgenv().AutoEquipSettings.Enabled = true
                             if setupAutoEquip then
@@ -1044,7 +1031,6 @@ local function farmPumpkinPoint(pumpkin)
                             })
                         end
                     else
-                        -- Re-enable Auto-Equip Weapon
                         if wasAutoEquipEnabled then
                             getgenv().AutoEquipSettings.Enabled = true
                             if setupAutoEquip then

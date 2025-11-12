@@ -1286,15 +1286,20 @@ end
 
 -- Function to stop Halloween farm
 local function stopHalloweenFarm()
+    -- Only teleport to safe spot if farm was actually running
+    local wasRunning = halloweenFarmRunning
+    
     halloweenFarmRunning = false
     currentHalloweenTarget = nil
     currentPumpkinPoint = nil
     
-    -- Teleport player to safe spot when farm is disabled
-    local playerData = getPlayerData()
-    local rootPart = playerData and playerData.rootPart
-    if rootPart then
-        rootPart.CFrame = CFrame.new(SAFE_SPOT)
+    -- Teleport player to safe spot only if farm was running
+    if wasRunning then
+        local playerData = getPlayerData()
+        local rootPart = playerData and playerData.rootPart
+        if rootPart then
+            rootPart.CFrame = CFrame.new(SAFE_SPOT)
+        end
     end
     
     -- Clean up Panic Mode connection

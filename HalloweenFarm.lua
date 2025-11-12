@@ -1101,7 +1101,48 @@ local function startHalloweenFarm()
                 if _G.NotificationLib then
                     _G.NotificationLib:MakeNotification({
                         Title = "Halloween Farm",
-                        Text = "Low HP detected! Resetting character...",
+                        Text = "Low HP detected! Checking danger status...",
+                        Duration = 3
+                    })
+                end
+                
+                -- Check if in danger
+                if getInDanger() then
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "In combat! Going to safe spot first...",
+                            Duration = 3
+                        })
+                    end
+                    
+                    -- Teleport to safe spot
+                    local rootPart = character:FindFirstChild("HumanoidRootPart")
+                    if rootPart then
+                        rootPart.CFrame = CFrame.new(SAFE_SPOT)
+                    end
+                    
+                    -- Wait until out of danger
+                    while getInDanger() do
+                        wait(0.5)
+                    end
+                    
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = "Out of combat! Now resetting...",
+                            Duration = 3
+                        })
+                    end
+                    
+                    wait(1)
+                end
+                
+                -- Now safe to reset
+                if _G.NotificationLib then
+                    _G.NotificationLib:MakeNotification({
+                        Title = "Halloween Farm",
+                        Text = "Resetting character...",
                         Duration = 3
                     })
                 end
@@ -1155,6 +1196,7 @@ local function startHalloweenFarm()
         local firstCycleComplete = false
         
         while getgenv().HalloweenFarmSettings.Enabled do
+            -- [Rest of the farm loop continues as before...]
             for _, connection in pairs(halloweenFarmConnections) do
                 if connection and connection.Connected then
                     pcall(function()

@@ -285,17 +285,11 @@ local function setupPanicMode()
 end
 
 -- Safety Mode: Teleport to safe spot when Chakra Sense is actively being used
-local safetyModeTeleportLoop
 local function setupSafetyMode()
     for _, conn in pairs(safetyModeConnections) do
         conn:Disconnect()
     end
     safetyModeConnections = {}
-    
-    -- Stop existing teleport loop
-    if safetyModeTeleportLoop then
-        safetyModeTeleportLoop = nil
-    end
     
     if not getgenv().HalloweenFarmSettings.SafetyMode then return end
     
@@ -333,35 +327,6 @@ local function setupSafetyMode()
         monitorPlayerCooldowns(playerFolder)
     end)
     table.insert(safetyModeConnections, addedConn)
-    
-    -- Continuous teleport loop that checks for active sensing
-    safetyModeTeleportLoop = task.spawn(function()
-        while getgenv().HalloweenFarmSettings.SafetyMode do
-            -- Check if anyone is actively sensing (from file 2's activeSenseUsers table)
-            local isActivelySensing = false
-            if getgenv().activeSenseUsers then
-                for playerName, isActive in pairs(getgenv().activeSenseUsers) do
-                    if isActive then
-                        isActivelySensing = true
-                        break
-                    end
-                end
-            end
-            
-            if isActivelySensing and getgenv().HalloweenFarmSettings.Enabled then
-                -- Constantly teleport to safe spot while someone is actively sensing
-                local character = LocalPlayer.Character
-                if character then
-                    local rootPart = character:FindFirstChild("HumanoidRootPart")
-                    if rootPart then
-                        rootPart.CFrame = CFrame.new(SAFE_SPOT)
-                    end
-                end
-            end
-            
-            task.wait(0.1)
-        end
-    end)
 end
 
 -- Functions to update modes

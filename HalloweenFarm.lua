@@ -1219,6 +1219,16 @@ local function startHalloweenFarm()
                     })
                 end
                 
+                -- Disconnect all connections before moving to safe spot
+                for _, connection in pairs(halloweenFarmConnections) do
+                    if connection and connection.Connected then
+                        pcall(function()
+                            connection:Disconnect()
+                        end)
+                    end
+                end
+                halloweenFarmConnections = {}
+                
                 if getInDanger() then
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({

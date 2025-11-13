@@ -1,0 +1,676 @@
+-- ESPModule.lua - Modular ESP System for Bloodlines
+-- Upload this file to your GitHub repository
+
+local ESPModule = {}
+
+-- Services
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- Storage
+ESPModule.ActivePlayerESP = {}
+ESPModule.ActiveMobESP = {}
+ESPModule.ActiveItemESP = {}
+ESPModule.ActiveFruitESP = {}
+ESPModule.ActivePumpkinESP = {}
+
+-- Tracked data
+local trackedMobs = {}
+local playerJutsuData = {}
+local jutsuConnections = {}
+
+-- Utility function
+local function createDrawing(class, properties)
+    local obj = Drawing.new(class)
+    for prop, val in pairs(properties) do
+        obj[prop] = val
+    end
+    return obj
+end
+
+-- ============================================
+-- PLAYER ESP
+-- ============================================
+
+local function createPlayerESP(player)
+    local esp = {
+        Box = createDrawing("Square", {
+            Color = Color3.fromRGB(255, 255, 255),
+            Thickness = 2,
+            Filled = false,
+            Visible = false
+        }),
+        HealthBarBack = createDrawing("Square", {
+            Color = Color3.fromRGB(0, 0, 0),
+            Filled = true,
+            Visible = false
+        }),
+        HealthBar = createDrawing("Square", {
+            Color = Color3.fromRGB(0, 255, 0),
+            Filled = true,
+            Visible = false
+        }),
+        NameText = createDrawing("Text", {
+            Color = Color3.fromRGB(255, 255, 255),
+            Size = getgenv().ESPSettings.TextSize,
+            Outline = true,
+            Center = true,
+            Visible = false
+        }),
+        JutsuText = createDrawing("Text", {
+            Color = Color3.fromRGB(255, 255, 0),
+            Size = getgenv().ESPSettings.TextSize,
+            Outline = true,
+            Center = true,
+            Visible = false
+        })
+    }
+
+    ESPModule.ActivePlayerESP[player] = esp
+    return esp
+end
+
+local function updatePlayerESP(player, esp)
+    RunService.RenderStepped:Connect(function()
+        local Settings = getgenv().ESPSettings
+        if not Settings.Enabled then
+            for _, item in pairs(esp) do item.Visible = false end
+            return
+        end
+
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local bloodlineFolder = ReplicatedStorage:FindFirstChild("Settings")
+        local playerFolder = bloodlineFolder and bloodlineFolder:FindFirstChild(player.Name)
+        local bloodline = playerFolder and playerFolder:FindFirstChild("Bloodline")
+        local bloodlineName = bloodline and bloodline.Value or "Unknown"
+
+        if hrp and hum and hum.Health > 0 then
+            local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
+
+                local scale = 1 / (vector.Z * 0.002) * Settings.BoxSizeMultiplier
+                local boxSize = Vector2.new(100 * scale, 130 * scale)
+                local boxPos = Vector2.new(vector.X - boxSize.X / 2, vector.Y - boxSize.Y / 2)
+
+                -- Jutsu Prediction
+                if Settings.Show.JutsuPrediction then
+                    local jutsuData = playerJutsuData[player.Name]
+                    if jutsuData and jutsuData.activeJutsu and (tick() - jutsuData.lastUpdate) < 3 then
+                        esp.JutsuText.Text = "[" .. jutsuData.activeJutsu .. "]"
+                        esp.JutsuText.Size = Settings.TextSize
+                        esp.JutsuText.Position = Vector2.new(vector.X, boxPos.Y + Settings.TextPosition - 20)
+                        esp.JutsuText.Visible = true
+                    else
+                        esp.JutsuText.Visible = false
+                    end
+                else
+                    esp.JutsuText.Visible = false
+                end
+
+                local info = {}
+                if Settings.Show.Name then table.insert(info, "[" .. player.Name .. "]") end
+                if Settings.Show.Health then table.insert(info, string.format("[%d/%d]", math.floor(hum.Health), math.floor(hum.MaxHealth))) end
+                if Settings.Show.Distance then table.insert(info, string.format("[%dm]", math.floor(distance))) end
+                if Settings.Show.Clan then table.insert(info, "[" .. bloodlineName .. "]") end
+                
+                -- Freshy Checker
+                if Settings.Show.FreshyChecker then
+                    local humanoidDisplayName = hum and hum.DisplayName or ""
+                    local isFreshy = string.find(player.Name, "🌱") ~= nil or string.find(humanoidDisplayName, "🌱") ~= nil
+                    if isFreshy then
+                        table.insert(info, "[FRESHY]")
+                    end
+                end
+
+                esp.NameText.Text = table.concat(info, " ")
+                esp.NameText.Size = Settings.TextSize
+                esp.NameText.Position = Vector2.new(vector.X, boxPos.Y + Settings.TextPosition)
+                esp.NameText.Visible = true
+
+                if distance <= Settings.MaxDistance then
+                    esp.Box.Size = boxSize
+                    esp.Box.Position = boxPos
+                    esp.Box.Visible = true
+
+                    local healthPercent = hum.Health / hum.MaxHealth
+                    local barHeight = boxSize.Y
+                    local barX = boxPos.X - (Settings.HealthBarWidth + 2)
+                    local barY = boxPos.Y
+
+                    esp.HealthBarBack.Size = Vector2.new(Settings.HealthBarWidth, barHeight)
+                    esp.HealthBarBack.Position = Vector2.new(barX, barY)
+                    esp.HealthBarBack.Visible = true
+
+                    local barColor = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+                    esp.HealthBar.Color = barColor
+                    esp.HealthBar.Size = Vector2.new(Settings.HealthBarWidth, barHeight * healthPercent)
+                    esp.HealthBar.Position = Vector2.new(barX, barY + (barHeight * (1 - healthPercent)))
+                    esp.HealthBar.Visible = true
+                else
+                    esp.Box.Visible = false
+                    esp.HealthBar.Visible = false
+                    esp.HealthBarBack.Visible = false
+                end
+            else
+                for _, item in pairs(esp) do item.Visible = false end
+            end
+        else
+            for _, item in pairs(esp) do item.Visible = false end
+        end
+    end)
+end
+
+-- ============================================
+-- MOB ESP
+-- ============================================
+
+local function createMobESP(mob)
+    local esp = {
+        NameText = createDrawing("Text", {
+            Color = Color3.fromRGB(255, 100, 100),
+            Size = getgenv().MobESPSettings.TextSize,
+            Outline = true,
+            Center = true,
+            Visible = false
+        })
+    }
+
+    ESPModule.ActiveMobESP[mob] = esp
+    return esp
+end
+
+local function updateMobESP(mob, esp)
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        local Settings = getgenv().MobESPSettings
+        if not Settings.Enabled or not mob or not mob.Parent then
+            esp.NameText.Visible = false
+            if not mob or not mob.Parent then
+                connection:Disconnect()
+            end
+            return
+        end
+
+        local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Main")
+        local hum = mob:FindFirstChildOfClass("Humanoid")
+
+        if rootPart and hum and hum.Health > 0 then
+            local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
+
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then table.insert(info, "[" .. mob.Name .. "]") end
+                    if Settings.Show.Health and hum then
+                        table.insert(info, string.format("[%d/%d]", math.floor(hum.Health), math.floor(hum.MaxHealth)))
+                    end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
+
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
+        else
+            esp.NameText.Visible = false
+        end
+    end)
+end
+
+local function setupMobESP(model)
+    if trackedMobs[model] then return end
+    
+    if model.Parent == Players then return end
+    
+    local player = Players:FindFirstChild(model.Name)
+    if player and player.Character == model then
+        return
+    end
+    
+    local hum = model:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    
+    local npcValue = model:FindFirstChild("NPC")
+    if npcValue and npcValue:IsA("StringValue") then
+        if npcValue.Value == "Dialog" or npcValue.Value == "Shop" then
+            return
+        end
+    end
+    
+    trackedMobs[model] = true
+    
+    local mobESP = createMobESP(model)
+    updateMobESP(model, mobESP)
+
+    model.Destroying:Connect(function()
+        if ESPModule.ActiveMobESP[model] then
+            for _, item in pairs(ESPModule.ActiveMobESP[model]) do
+                if item.Remove then item:Remove() end
+            end
+            ESPModule.ActiveMobESP[model] = nil
+        end
+        trackedMobs[model] = nil
+    end)
+end
+
+-- ============================================
+-- ITEM ESP
+-- ============================================
+
+local function createItemESP(item)
+    local esp = {
+        NameText = createDrawing("Text", {
+            Color = Color3.fromRGB(100, 255, 100),
+            Size = getgenv().ItemESPSettings.TextSize,
+            Outline = true,
+            Center = true,
+            Visible = false
+        })
+    }
+
+    ESPModule.ActiveItemESP[item] = esp
+    return esp
+end
+
+local function updateItemESP(item, esp)
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        local Settings = getgenv().ItemESPSettings
+        if not Settings.Enabled or not item or not item.Parent then
+            esp.NameText.Visible = false
+            if not item or not item.Parent then
+                connection:Disconnect()
+            end
+            return
+        end
+
+        if item:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(item.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - item.Position).Magnitude
+
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then table.insert(info, "[" .. item.Name .. "]") end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
+
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
+        else
+            esp.NameText.Visible = false
+        end
+    end)
+end
+
+-- ============================================
+-- FRUIT ESP
+-- ============================================
+
+local FRUIT_NAMES = {
+    "Life Up Fruit",
+    "Fruit Of Forgiveness",
+    "Chakra Fruit"
+}
+
+local function isTargetFruit(item)
+    for _, fruitName in ipairs(FRUIT_NAMES) do
+        if item.Name == fruitName then
+            return true
+        end
+    end
+    return false
+end
+
+local function createFruitESP(fruit)
+    local esp = {
+        NameText = createDrawing("Text", {
+            Color = Color3.fromRGB(255, 0, 0),
+            Size = getgenv().FruitESPSettings.TextSize,
+            Outline = true,
+            Center = true,
+            Visible = false
+        })
+    }
+
+    ESPModule.ActiveFruitESP[fruit] = esp
+    return esp
+end
+
+local function updateFruitESP(fruit, esp)
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        local Settings = getgenv().FruitESPSettings
+        if not Settings.Enabled or not fruit or not fruit.Parent then
+            esp.NameText.Visible = false
+            if not fruit or not fruit.Parent then
+                connection:Disconnect()
+            end
+            return
+        end
+
+        if fruit:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(fruit.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - fruit.Position).Magnitude
+
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then 
+                        table.insert(info, "[Possible " .. fruit.Name .. "]") 
+                    end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
+
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
+        else
+            esp.NameText.Visible = false
+        end
+    end)
+end
+
+-- ============================================
+-- PUMPKIN ESP
+-- ============================================
+
+local function createPumpkinESP(pumpkin)
+    local esp = {
+        NameText = createDrawing("Text", {
+            Color = Color3.fromRGB(255, 165, 0),
+            Size = getgenv().PumpkinESPSettings.TextSize,
+            Outline = true,
+            Center = true,
+            Visible = false
+        })
+    }
+
+    ESPModule.ActivePumpkinESP[pumpkin] = esp
+    return esp
+end
+
+local function updatePumpkinESP(pumpkin, esp)
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        local Settings = getgenv().PumpkinESPSettings
+        if not Settings.Enabled or not pumpkin or not pumpkin.Parent then
+            esp.NameText.Visible = false
+            if not pumpkin or not pumpkin.Parent then
+                connection:Disconnect()
+            end
+            return
+        end
+
+        local mainPart = pumpkin:FindFirstChild("Main")
+        if mainPart and mainPart:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(mainPart.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - mainPart.Position).Magnitude
+
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then table.insert(info, "[" .. pumpkin.Name .. "]") end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
+
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
+        else
+            esp.NameText.Visible = false
+        end
+    end)
+end
+
+-- ============================================
+-- INITIALIZATION FUNCTIONS
+-- ============================================
+
+function ESPModule.InitPlayerESP()
+    -- Setup for existing players
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local esp = createPlayerESP(player)
+            updatePlayerESP(player, esp)
+        end
+    end
+
+    -- Setup for new players
+    Players.PlayerAdded:Connect(function(player)
+        if player ~= LocalPlayer then
+            local esp = createPlayerESP(player)
+            updatePlayerESP(player, esp)
+        end
+    end)
+
+    -- Cleanup when players leave
+    Players.PlayerRemoving:Connect(function(player)
+        if ESPModule.ActivePlayerESP[player] then
+            for _, item in pairs(ESPModule.ActivePlayerESP[player]) do
+                if item.Remove then item:Remove() end
+            end
+            ESPModule.ActivePlayerESP[player] = nil
+        end
+    end)
+end
+
+function ESPModule.InitMobESP()
+    -- Scan existing mobs
+    for _, child in pairs(workspace:GetChildren()) do
+        if child:IsA("Model") then
+            setupMobESP(child)
+        end
+    end
+    
+    -- Monitor for new mobs
+    workspace.ChildAdded:Connect(function(child)
+        if child:IsA("Model") then
+            task.wait(0.05)
+            setupMobESP(child)
+        end
+    end)
+    
+    -- Monitor humanoid additions
+    workspace.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("Humanoid") then
+            local model = descendant.Parent
+            while model and not model:IsA("Model") do
+                model = model.Parent
+            end
+            
+            if model and model.Parent == workspace then
+                task.wait(0.05)
+                setupMobESP(model)
+            end
+        end
+    end)
+    
+    -- Continuous scanning
+    task.spawn(function()
+        while true do
+            for _, child in pairs(workspace:GetChildren()) do
+                if child:IsA("Model") and not trackedMobs[child] then
+                    local hum = child:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        setupMobESP(child)
+                    end
+                end
+            end
+            task.wait(2)
+        end
+    end)
+end
+
+function ESPModule.InitItemESP()
+    local function onItemAdded(obj)
+        if not obj:IsA('BasePart') then return end
+
+        local pickupable = obj:WaitForChild('Pickupable', 10)
+        if not pickupable then return end
+
+        local id = obj:WaitForChild('ID', 10)
+        if not id then return end
+
+        local itemESP = createItemESP(obj)
+        updateItemESP(obj, itemESP)
+
+        obj.Destroying:Connect(function()
+            if ESPModule.ActiveItemESP[obj] then
+                for _, item in pairs(ESPModule.ActiveItemESP[obj]) do
+                    if item.Remove then item:Remove() end
+                end
+                ESPModule.ActiveItemESP[obj] = nil
+            end
+        end)
+    end
+
+    for _, child in pairs(workspace:GetChildren()) do
+        task.spawn(onItemAdded, child)
+    end
+
+    workspace.ChildAdded:Connect(onItemAdded)
+end
+
+function ESPModule.InitFruitESP()
+    local function onFruitAdded(child)
+        if not child:IsA("BasePart") then return end
+        
+        if isTargetFruit(child) then
+            local fruitESP = createFruitESP(child)
+            updateFruitESP(child, fruitESP)
+
+            child.Destroying:Connect(function()
+                if ESPModule.ActiveFruitESP[child] then
+                    for _, item in pairs(ESPModule.ActiveFruitESP[child]) do
+                        if item.Remove then item:Remove() end
+                    end
+                    ESPModule.ActiveFruitESP[child] = nil
+                end
+            end)
+        end
+    end
+
+    -- Scan ReplicatedStorage
+    for _, descendant in pairs(ReplicatedStorage:GetDescendants()) do
+        if descendant:IsA("BasePart") and isTargetFruit(descendant) then
+            task.spawn(onFruitAdded, descendant)
+        end
+    end
+
+    ReplicatedStorage.DescendantAdded:Connect(function(descendant)
+        if descendant:IsA("BasePart") and isTargetFruit(descendant) then
+            onFruitAdded(descendant)
+        end
+    end)
+end
+
+function ESPModule.InitPumpkinESP()
+    local function onPumpkinAdded(obj)
+        if not obj:IsA('Model') then return end
+        if obj.Name ~= "Pumpkin Point" then return end
+
+        local pumpkinESP = createPumpkinESP(obj)
+        updatePumpkinESP(obj, pumpkinESP)
+
+        obj.Destroying:Connect(function()
+            if ESPModule.ActivePumpkinESP[obj] then
+                for _, item in pairs(ESPModule.ActivePumpkinESP[obj]) do
+                    if item.Remove then item:Remove() end
+                end
+                ESPModule.ActivePumpkinESP[obj] = nil
+            end
+        end)
+    end
+
+    for _, child in pairs(workspace:GetChildren()) do
+        task.spawn(onPumpkinAdded, child)
+    end
+
+    workspace.ChildAdded:Connect(onPumpkinAdded)
+end
+
+-- ============================================
+-- CLEANUP FUNCTION
+-- ============================================
+
+function ESPModule.Cleanup()
+    -- Clean up all ESP
+    for _, obj in pairs(ESPModule.ActivePlayerESP or {}) do
+        for _, item in pairs(obj) do
+            if item.Remove then item:Remove() end
+        end
+    end
+    ESPModule.ActivePlayerESP = {}
+    
+    for _, obj in pairs(ESPModule.ActiveMobESP or {}) do
+        for _, item in pairs(obj) do
+            if item.Remove then item:Remove() end
+        end
+    end
+    ESPModule.ActiveMobESP = {}
+    
+    for _, obj in pairs(ESPModule.ActiveItemESP or {}) do
+        for _, item in pairs(obj) do
+            if item.Remove then item:Remove() end
+        end
+    end
+    ESPModule.ActiveItemESP = {}
+    
+    for _, obj in pairs(ESPModule.ActiveFruitESP or {}) do
+        for _, item in pairs(obj) do
+            if item.Remove then item:Remove() end
+        end
+    end
+    ESPModule.ActiveFruitESP = {}
+    
+    for _, obj in pairs(ESPModule.ActivePumpkinESP or {}) do
+        for _, item in pairs(obj) do
+            if item.Remove then item:Remove() end
+        end
+    end
+    ESPModule.ActivePumpkinESP = {}
+end
+
+return ESPModule

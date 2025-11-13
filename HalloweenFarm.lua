@@ -1,4 +1,4 @@
--- Halloween Farm Module (Fixed)
+-- Halloween Farm Module (Updated)
 -- Place this file on GitHub and load it remotely
 
 local HalloweenFarm = {}
@@ -59,7 +59,6 @@ end
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local TeleportService = game:GetService("TeleportService")
 local LocalPlayer = Players.LocalPlayer
 
 local remotes = ReplicatedStorage:WaitForChild("Events")
@@ -373,42 +372,8 @@ local function updateSafetyMode()
 end
 
 -- ============================================
--- BASKET FUNCTIONS (FIXED)
+-- BASKET FUNCTIONS
 -- ============================================
-
-local function playerHasBasket()
-    local remote = ReplicatedStorage:FindFirstChild("Events")
-    if not remote then return false end
-    
-    local dataFunction = remote:FindFirstChild("DataFunction")
-    if not dataFunction then return false end
-    
-    local success, playerdata = pcall(function()
-        return dataFunction:InvokeServer("GetData")
-    end)
-    
-    if not success or not playerdata then return false end
-    
-    -- Check inventory
-    if playerdata.Inventory then
-        for _, entry in pairs(playerdata.Inventory) do
-            if entry.Item == "Treat Basket" then
-                return true
-            end
-        end
-    end
-    
-    -- Check loadout
-    if playerdata.Loadout then
-        for _, entry in pairs(playerdata.Loadout) do
-            if entry.Item == "Treat Basket" then
-                return true
-            end
-        end
-    end
-    
-    return false
-end
 
 local function getVisibleCandyCount()
     local playerBasket = workspace:FindFirstChild(LocalPlayer.Name)
@@ -427,16 +392,35 @@ local function getVisibleCandyCount()
 end
 
 local function autoFillBasket()
-    -- Check if player has basket first
-    if not playerHasBasket() then
-        if _G.NotificationLib then
-            _G.NotificationLib:MakeNotification({
-                Title = "Halloween Farm",
-                Text = "No Treat Basket found! Skipping auto-fill.",
-                Duration = 3
-            })
+    -- First check if player has a basket at all
+    local playerdata = game:GetService("ReplicatedStorage")
+        :WaitForChild("Events")
+        :WaitForChild("DataFunction")
+        :InvokeServer("GetData")
+    
+    local foundbasket = false
+    
+    -- Check inventory for basket
+    for _, entry in pairs(playerdata.Inventory or {}) do
+        if entry.Item == "Treat Basket" then
+            foundbasket = true
+            break
         end
-        return false
+    end
+    
+    -- Check loadout for basket
+    if not foundbasket then
+        for _, entry in pairs(playerdata.Loadout or {}) do
+            if entry.Item == "Treat Basket" then
+                foundbasket = true
+                break
+            end
+        end
+    end
+    
+    -- If no basket exists, don't try to fill it
+    if not foundbasket then
+        return
     end
     
     local function isValidNPC(model)
@@ -481,29 +465,11 @@ local function autoFillBasket()
             task.wait(0.1)
         end
     end
-    
-    return true
 end
 
 local function autoUseBasket()
-    -- Check if player has basket first
-    if not playerHasBasket() then
-        if _G.NotificationLib then
-            _G.NotificationLib:MakeNotification({
-                Title = "Halloween Farm",
-                Text = "No Treat Basket found! Skipping auto-use.",
-                Duration = 3
-            })
-        end
-        return false
-    end
-    
     local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataFunction")
-    local success, playerdata = pcall(function()
-        return remote:InvokeServer("GetData")
-    end)
-    
-    if not success or not playerdata then return false end
+    local playerdata = remote:InvokeServer("GetData")
     
     local foundbasket = false
     local candyamount = 0
@@ -584,11 +550,10 @@ local function isAnyoneActivelySensing()
 end
 
 -- ============================================
--- SERVER HOP FUNCTION (FIXED)
+-- SERVER HOP FUNCTION
 -- ============================================
 
 performServerHop = function()
-    -- Handle danger state
     if getInDanger() then
         if _G.NotificationLib then
             _G.NotificationLib:MakeNotification({
@@ -600,42 +565,25 @@ performServerHop = function()
         
         startConstantSafeSpotTeleport()
         
-        local dangerTimeout = 30
-        local dangerStart = tick()
-        
-        while getInDanger() and (tick() - dangerStart) < dangerTimeout do
+        while getInDanger() do
             wait(0.5)
         end
         
-        stopConstantSafeSpotTeleport()
-        
-        if getInDanger() then
-            if _G.NotificationLib then
-                _G.NotificationLib:MakeNotification({
-                    Title = "Halloween Farm",
-                    Text = "Still in combat after 30s, attempting hop anyway...",
-                    Duration = 3
-                })
-            end
-        else
-            if _G.NotificationLib then
-                _G.NotificationLib:MakeNotification({
-                    Title = "Halloween Farm",
-                    Text = "Out of combat! Server hopping now...",
-                    Duration = 3
-                })
-            end
+        if _G.NotificationLib then
+            _G.NotificationLib:MakeNotification({
+                Title = "Halloween Farm",
+                Text = "Out of combat! Server hopping now...",
+                Duration = 3
+            })
         end
         
         wait(1)
     end
     
-    -- Try GUI-based server hop first
-    local guiHopSuccess = false
-    local maxAttempts = 3
+    local maxAttempts = 5
     local currentAttempt = 0
     
-    while currentAttempt < maxAttempts and not guiHopSuccess do
+    while currentAttempt < maxAttempts do
         currentAttempt = currentAttempt + 1
         
         local success = pcall(function()
@@ -695,47 +643,36 @@ performServerHop = function()
                 end
             end
             
-            if #validServers > 0 then
-                local randomIndex = math.random(1, #validServers)
-                local selectedServer = validServers[randomIndex]
-                
-                pcall(function()
-                    for _, connection in pairs(getconnections(selectedServer.button.MouseButton1Click)) do
-                        connection:Fire()
-                    end
-                end)
-                
-                guiHopSuccess = true
-                return
+            if #validServers == 0 then 
+                return 
             end
+            
+            local randomIndex = math.random(1, #validServers)
+            local selectedServer = validServers[randomIndex]
+            
+            pcall(function()
+                for _, connection in pairs(getconnections(selectedServer.button.MouseButton1Click)) do
+                    connection:Fire()
+                end
+            end)
         end)
         
-        if not guiHopSuccess then
-            wait(2)
-        end
-    end
-    
-    -- If GUI hop failed, use TeleportService as fallback
-    if not guiHopSuccess then
-        if _G.NotificationLib then
-            _G.NotificationLib:MakeNotification({
-                Title = "Halloween Farm",
-                Text = "GUI hop failed, using TeleportService...",
-                Duration = 3
-            })
-        end
+        wait(2)
         
-        local placeId = game.PlaceId
-        local success, errorMsg = pcall(function()
-            TeleportService:Teleport(placeId, LocalPlayer)
-        end)
-        
-        if not success then
+        if currentAttempt < maxAttempts then
             if _G.NotificationLib then
                 _G.NotificationLib:MakeNotification({
                     Title = "Halloween Farm",
-                    Text = "Server hop failed: " .. tostring(errorMsg),
-                    Duration = 5
+                    Text = string.format("Server full! Retry %d/%d", currentAttempt + 1, maxAttempts),
+                    Duration = 2
+                })
+            end
+        else
+            if _G.NotificationLib then
+                _G.NotificationLib:MakeNotification({
+                    Title = "Halloween Farm",
+                    Text = "Failed to find available server after 5 attempts",
+                    Duration = 3
                 })
             end
         end
@@ -1310,7 +1247,7 @@ local function startHalloweenFarm()
         while halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled do
             -- Always farm pumpkins when Halloween Farm is enabled
             local targetPumpkin = findNearestAvailablePumpkinPoint()
-            
+
             if targetPumpkin then
                 farmPumpkinPoint(targetPumpkin)
             else
@@ -1321,9 +1258,9 @@ local function startHalloweenFarm()
                         Duration = 3
                     })
                 end
-                
+
                 local availablePumpkins = recheckBlacklistedPumpkins()
-                
+
                 if #availablePumpkins > 0 then
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
@@ -1340,17 +1277,17 @@ local function startHalloweenFarm()
                             Duration = 3
                         })
                     end
-                    
+
                     if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
                         performServerHop()
                     else
                         stopHalloweenFarm()
                     end
-                    
+
                     break
                 end
             end
-            
+
             wait(1)
         end
         

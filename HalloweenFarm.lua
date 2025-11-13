@@ -399,11 +399,13 @@ local function autoFillBasket()
         :InvokeServer("GetData")
     
     local foundbasket = false
+    local candyamount = 0
     
     -- Check inventory for basket
     for _, entry in pairs(playerdata.Inventory or {}) do
         if entry.Item == "Treat Basket" then
             foundbasket = true
+            candyamount = entry.Data and entry.Data.Candies or 0
             break
         end
     end
@@ -413,6 +415,7 @@ local function autoFillBasket()
         for _, entry in pairs(playerdata.Loadout or {}) do
             if entry.Item == "Treat Basket" then
                 foundbasket = true
+                candyamount = entry.Data and entry.Data.Candies or 0
                 break
             end
         end
@@ -420,7 +423,58 @@ local function autoFillBasket()
     
     -- If no basket exists, don't try to fill it
     if not foundbasket then
+        if _G.NotificationLib then
+            _G.NotificationLib:MakeNotification({
+                Title = "Halloween Farm",
+                Text = "No basket found! Skipping auto-fill...",
+                Duration = 2
+            })
+        end
         return
+    end
+    
+    -- Check if basket is already full
+    if candyamount >= 8 then
+        if _G.NotificationLib then
+            _G.NotificationLib:MakeNotification({
+                Title = "Halloween Farm",
+                Text = "Basket already full!",
+                Duration = 2
+            })
+        end
+        return
+    end
+    
+    -- Check if basket is currently visible/equipped in workspace
+    local playerBasket = workspace:FindFirstChild(LocalPlayer.Name)
+    if not playerBasket or not playerBasket:FindFirstChild("Treat Basket") then
+        if _G.NotificationLib then
+            _G.NotificationLib:MakeNotification({
+                Title = "Halloween Farm",
+                Text = "Basket not equipped! Equipping now...",
+                Duration = 2
+            })
+        end
+        
+        -- Try to equip the basket
+        pcall(function()
+            ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataEvent"):FireServer("Item", "Selected", "Treat Basket")
+        end)
+        
+        task.wait(0.5)
+        
+        -- Verify basket is now equipped
+        playerBasket = workspace:FindFirstChild(LocalPlayer.Name)
+        if not playerBasket or not playerBasket:FindFirstChild("Treat Basket") then
+            if _G.NotificationLib then
+                _G.NotificationLib:MakeNotification({
+                    Title = "Halloween Farm",
+                    Text = "Failed to equip basket! Skipping auto-fill...",
+                    Duration = 2
+                })
+            end
+            return
+        end
     end
     
     local function isValidNPC(model)
@@ -447,6 +501,16 @@ local function autoFillBasket()
     end
     
     local npcCount = 0
+    local visibleCandy = getVisibleCandyCount()
+    
+    if _G.NotificationLib then
+        _G.NotificationLib:MakeNotification({
+            Title = "Halloween Farm",
+            Text = string.format("Filling basket... (%d/8 candy)", visibleCandy),
+            Duration = 2
+        })
+    end
+    
     for _, model in pairs(workspace:GetChildren()) do
         if getVisibleCandyCount() >= 8 then
             break
@@ -462,8 +526,16 @@ local function autoFillBasket()
                 npcCount = npcCount + 1
             end
             
-            task.wait(0.1)
+            task.wait(0.2)
         end
+    end
+    
+    if _G.NotificationLib then
+        _G.NotificationLib:MakeNotification({
+            Title = "Halloween Farm",
+            Text = string.format("Filled basket! Visited %d NPCs", npcCount),
+            Duration = 2
+        })
     end
 end
 
@@ -1247,7 +1319,7 @@ local function startHalloweenFarm()
         while halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled do
             -- Always farm pumpkins when Halloween Farm is enabled
             local targetPumpkin = findNearestAvailablePumpkinPoint()
-
+            
             if targetPumpkin then
                 farmPumpkinPoint(targetPumpkin)
             else
@@ -1258,9 +1330,9 @@ local function startHalloweenFarm()
                         Duration = 3
                     })
                 end
-
+                
                 local availablePumpkins = recheckBlacklistedPumpkins()
-
+                
                 if #availablePumpkins > 0 then
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
@@ -1277,17 +1349,17 @@ local function startHalloweenFarm()
                             Duration = 3
                         })
                     end
-
+                    
                     if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
                         performServerHop()
                     else
                         stopHalloweenFarm()
                     end
-
+                    
                     break
                 end
             end
-
+            
             wait(1)
         end
         

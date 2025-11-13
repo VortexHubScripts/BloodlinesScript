@@ -165,11 +165,7 @@ end
 
 function Utils.notify(text, duration)
     if _G.NotificationLib then
-        _G.NotificationLib:MakeNotification({
-            Title = "Boss Farm",
-            Text = text,
-            Duration = duration or 3
-        })
+        wait(1)
     end
 end
 

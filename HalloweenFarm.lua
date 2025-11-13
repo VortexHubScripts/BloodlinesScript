@@ -1,4 +1,4 @@
--- Halloween Farm Module
+-- Halloween Farm Module (Updated)
 -- Place this file on GitHub and load it remotely
 
 local HalloweenFarm = {}
@@ -13,7 +13,11 @@ getgenv().HalloweenFarmSettings = {
     PumpkinFarmDistance = 8,
     ServerHopWhenComplete = true,
     PanicMode = false,
-    SafetyMode = false
+    SafetyMode = false,
+    AutoFillBasket = false,
+    AutoUseBasket = false,
+    FarmHallowedPortals = false,
+    FarmCandy = true
 }
 
 -- ============================================
@@ -59,6 +63,24 @@ local LocalPlayer = Players.LocalPlayer
 
 local remotes = ReplicatedStorage:WaitForChild("Events")
 local dataEvent = remotes:WaitForChild("DataEvent")
+
+-- ============================================
+-- NPC LIST FOR BASKET FILLING
+-- ============================================
+
+local NPCs = {}
+
+for i, v in pairs(workspace:GetDescendants()) do
+    if v.Name == "NPC" then
+        if v.Value == "Dialog" then
+            if v.Parent:FindFirstChild("HumanoidRootPart") then
+                if not v.Parent:FindFirstChild("WorldBoss") then
+                    table.insert(NPCs, tostring(v.Parent))
+                end
+            end
+        end
+    end
+end
 
 -- ============================================
 -- IN DANGER STATE MANAGEMENT
@@ -347,6 +369,104 @@ end
 
 local function updateSafetyMode()
     setupSafetyMode()
+end
+
+-- ============================================
+-- BASKET FUNCTIONS
+-- ============================================
+
+local function getVisibleCandyCount()
+    local playerBasket = workspace:FindFirstChild(LocalPlayer.Name)
+    if not playerBasket then return 0 end
+    
+    local basket = playerBasket:FindFirstChild("Treat Basket")
+    if not basket then return 0 end
+
+    local count = 0
+    for _, obj in pairs(basket:GetChildren()) do
+        if obj:IsA("MeshPart") and obj.Name == "Candy" and obj.Transparency == 0 then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+local function autoFillBasket()
+    local function isValidNPC(model)
+        if not model:IsA("Model") then
+            return false
+        end
+        
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if not humanoid then
+            return false
+        end
+        
+        local npcValue = model:FindFirstChild("NPC")
+        if not npcValue or not npcValue:IsA("StringValue") then
+            return false
+        end
+        
+        local hrp = model:FindFirstChild("HumanoidRootPart")
+        if not hrp then
+            return false
+        end
+        
+        return true, hrp
+    end
+    
+    local npcCount = 0
+    for _, model in pairs(workspace:GetChildren()) do
+        if getVisibleCandyCount() >= 8 then
+            break
+        end
+
+        local isValid, hrp = isValidNPC(model)
+        if isValid then
+            local success = pcall(function()
+                return ReplicatedStorage.Events.DataFunction:InvokeServer("trickOrTreat", hrp)
+            end)
+            
+            if success then
+                npcCount = npcCount + 1
+            end
+            
+            task.wait(0.1)
+        end
+    end
+end
+
+local function autoUseBasket()
+    local remote = ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataFunction")
+    local playerdata = remote:InvokeServer("GetData")
+    
+    local foundbasket = false
+    local candyamount = 0
+
+    for _, entry in pairs(playerdata.Inventory or {}) do
+        if entry.Item == "Treat Basket" then
+            foundbasket = true
+            candyamount = entry.Data and entry.Data.Candies or 0
+            break
+        end
+    end
+
+    for _, entry in pairs(playerdata.Loadout or {}) do
+        if entry.Item == "Treat Basket" then
+            foundbasket = true
+            candyamount = entry.Data and entry.Data.Candies or 0
+            break
+        end
+    end
+
+    if foundbasket and candyamount >= 8 then
+        ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataEvent"):FireServer("Item","Selected","Treat Basket")
+        wait(0.1)
+        ReplicatedStorage:WaitForChild("Events"):WaitForChild("DataEvent"):FireServer("Consumed","Treat Basket")
+        return true
+    end
+    
+    return false
 end
 
 -- ============================================
@@ -660,67 +780,6 @@ local function waitForItemsNearPlayer()
     return true, itemDetected
 end
 
-local function getVisibleCandyCount()
-    local playerBasket = workspace:FindFirstChild(LocalPlayer.Name)
-    if not playerBasket then return 0 end
-    
-    local basket = playerBasket:FindFirstChild("Treat Basket")
-    if not basket then return 0 end
-
-    local count = 0
-    for _, obj in pairs(basket:GetChildren()) do
-        if obj:IsA("MeshPart") and obj.Name == "Candy" and obj.Transparency == 0 then
-            count = count + 1
-        end
-    end
-    return count
-end
-
-local function autoFillBasket()
-    local function isValidNPC(model)
-        if not model:IsA("Model") then
-            return false
-        end
-        
-        local humanoid = model:FindFirstChildOfClass("Humanoid")
-        if not humanoid then
-            return false
-        end
-        
-        local npcValue = model:FindFirstChild("NPC")
-        if not npcValue or not npcValue:IsA("StringValue") then
-            return false
-        end
-        
-        local hrp = model:FindFirstChild("HumanoidRootPart")
-        if not hrp then
-            return false
-        end
-        
-        return true, hrp
-    end
-    
-    local npcCount = 0
-    for _, model in pairs(workspace:GetChildren()) do
-        if getVisibleCandyCount() >= 8 then
-            break
-        end
-
-        local isValid, hrp = isValidNPC(model)
-        if isValid then
-            local success = pcall(function()
-                return ReplicatedStorage.Events.DataFunction:InvokeServer("trickOrTreat", hrp)
-            end)
-            
-            if success then
-                npcCount = npcCount + 1
-            end
-            
-            task.wait(0.1)
-        end
-    end
-end
-
 -- ============================================
 -- FARM PUMPKIN POINT
 -- ============================================
@@ -950,18 +1009,31 @@ local function farmPumpkinPoint(pumpkin)
                     wait(1)
                     stopConstantSafeSpotTeleport()
                     
-                    -- Auto fill basket (DISABLED)
-                    --[[
-                    if _G.NotificationLib then
-                        _G.NotificationLib:MakeNotification({
-                            Title = "Halloween Farm",
-                            Text = "Auto-filling basket with candy...",
-                            Duration = 3
-                        })
+                    -- Auto fill basket if enabled
+                    if getgenv().HalloweenFarmSettings.AutoFillBasket then
+                        if _G.NotificationLib then
+                            _G.NotificationLib:MakeNotification({
+                                Title = "Halloween Farm",
+                                Text = "Auto-filling basket with candy...",
+                                Duration = 3
+                            })
+                        end
+                        
+                        autoFillBasket()
                     end
                     
-                    autoFillBasket()
-                    ]]--
+                    -- Auto use basket if enabled
+                    if getgenv().HalloweenFarmSettings.AutoUseBasket then
+                        if autoUseBasket() then
+                            if _G.NotificationLib then
+                                _G.NotificationLib:MakeNotification({
+                                    Title = "Halloween Farm",
+                                    Text = "Used basket successfully!",
+                                    Duration = 2
+                                })
+                            end
+                        end
+                    end
                     
                     wait(1)
                     
@@ -1009,6 +1081,40 @@ local function recheckBlacklistedPumpkins()
     end
     
     return availablePumpkins
+end
+
+-- ============================================
+-- CANDY PICKUP FUNCTION
+-- ============================================
+
+local function pickupCandyDrop(candy)
+    if not candy or not candy:IsDescendantOf(workspace) then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    -- Check if candy belongs to player
+    if not candy:FindFirstChild(LocalPlayer.Name) then return end
+    
+    -- Move to candy
+    while candy and candy:IsDescendantOf(workspace) and getgenv().HalloweenFarmSettings.Enabled do
+        hrp.CFrame = candy.CFrame * CFrame.new(0, -5, 0)
+        
+        -- Try to click the candy
+        task.spawn(function()
+            task.wait(0.1)
+            for _, child in pairs(candy:GetChildren()) do
+                if child:IsA("ClickDetector") then
+                    fireclickdetector(child)
+                end
+            end
+        end)
+        
+        task.wait(0.1)
+    end
 end
 
 -- ============================================
@@ -1096,49 +1202,58 @@ local function startHalloweenFarm()
             end
         end
         
+        -- Monitor for candy drops
+        local candyConnection = workspace.ChildAdded:Connect(function(child)
+            if child.Name == "Candy" and getgenv().HalloweenFarmSettings.FarmCandy then
+                task.spawn(function()
+                    pickupCandyDrop(child)
+                end)
+            end
+        end)
+        table.insert(halloweenFarmConnections, candyConnection)
+        
         -- Main farm loop
         while halloweenFarmRunning and getgenv().HalloweenFarmSettings.Enabled do
-            if getgenv().HalloweenFarmSettings.FarmPumpkins then
-                local targetPumpkin = findNearestAvailablePumpkinPoint()
+            -- Always farm pumpkins when Halloween Farm is enabled
+            local targetPumpkin = findNearestAvailablePumpkinPoint()
+            
+            if targetPumpkin then
+                farmPumpkinPoint(targetPumpkin)
+            else
+                if _G.NotificationLib then
+                    _G.NotificationLib:MakeNotification({
+                        Title = "Halloween Farm",
+                        Text = "No available pumpkins. Checking blacklist...",
+                        Duration = 3
+                    })
+                end
                 
-                if targetPumpkin then
-                    farmPumpkinPoint(targetPumpkin)
+                local availablePumpkins = recheckBlacklistedPumpkins()
+                
+                if #availablePumpkins > 0 then
+                    if _G.NotificationLib then
+                        _G.NotificationLib:MakeNotification({
+                            Title = "Halloween Farm",
+                            Text = string.format("Found %d available pumpkin(s)!", #availablePumpkins),
+                            Duration = 3
+                        })
+                    end
                 else
                     if _G.NotificationLib then
                         _G.NotificationLib:MakeNotification({
                             Title = "Halloween Farm",
-                            Text = "No available pumpkins. Checking blacklist...",
+                            Text = "All pumpkins farmed! Server hopping...",
                             Duration = 3
                         })
                     end
                     
-                    local availablePumpkins = recheckBlacklistedPumpkins()
-                    
-                    if #availablePumpkins > 0 then
-                        if _G.NotificationLib then
-                            _G.NotificationLib:MakeNotification({
-                                Title = "Halloween Farm",
-                                Text = string.format("Found %d available pumpkin(s)!", #availablePumpkins),
-                                Duration = 3
-                            })
-                        end
+                    if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
+                        performServerHop()
                     else
-                        if _G.NotificationLib then
-                            _G.NotificationLib:MakeNotification({
-                                Title = "Halloween Farm",
-                                Text = "All pumpkins farmed! Server hopping...",
-                                Duration = 3
-                            })
-                        end
-                        
-                        if getgenv().HalloweenFarmSettings.ServerHopWhenComplete then
-                            performServerHop()
-                        else
-                            stopHalloweenFarm()
-                        end
-                        
-                        break
+                        stopHalloweenFarm()
                     end
+                    
+                    break
                 end
             end
             
@@ -1276,6 +1391,7 @@ HalloweenFarm.getFarmStatus = getFarmStatus
 HalloweenFarm.startAutoPickupCandy = startAutoPickupCandy
 HalloweenFarm.stopAutoPickupCandy = stopAutoPickupCandy
 HalloweenFarm.autoFillBasket = autoFillBasket
+HalloweenFarm.autoUseBasket = autoUseBasket
 HalloweenFarm.updatePanicMode = updatePanicMode
 HalloweenFarm.updateSafetyMode = updateSafetyMode
 

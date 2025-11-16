@@ -1,16 +1,6 @@
-local REQUIRED_GAME_ID = 10266164381
-if game.PlaceId ~= REQUIRED_GAME_ID then
-    return
-end
-
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
-
-local REQUIRED_GAME_ID = 10266164381
-if game.PlaceId ~= REQUIRED_GAME_ID then
-    return
-end
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")

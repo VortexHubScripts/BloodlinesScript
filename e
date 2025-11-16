@@ -2,10 +2,6 @@ local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local LocalPlayer = Players.LocalPlayer
 
-local Players = game:GetService("Players")
-local HttpService = game:GetService("HttpService")
-local LocalPlayer = Players.LocalPlayer
-
 --[[ ============================================
 -- SIMPLIFIED AUTO-LOAD SYSTEM
 -- Bishop Hub - Bloodlines Integration

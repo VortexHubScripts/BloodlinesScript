@@ -362,6 +362,24 @@ local function createFruitESP(fruit)
     return esp
 end
 
+local function isNearTree(fruit)
+    if not fruit:IsA("BasePart") then return false end
+    
+    for _, model in pairs(workspace:GetChildren()) do
+        if model:IsA("Model") and string.lower(model.Name):match("^tree") then
+            for _, part in pairs(model:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    local distance = (fruit.Position - part.Position).Magnitude
+                    if distance <= 10 then
+                        return true
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function updateFruitESP(fruit, esp)
     local connection
     connection = RunService.RenderStepped:Connect(function()
@@ -375,6 +393,12 @@ local function updateFruitESP(fruit, esp)
         end
 
         if fruit:IsA("BasePart") then
+            -- Check if fruit is within 10m of any tree part
+            if not isNearTree(fruit) then
+                esp.NameText.Visible = false
+                return
+            end
+            
             local vector, onScreen = Camera:WorldToViewportPoint(fruit.Position)
             if onScreen then
                 local distance = (Camera.CFrame.Position - fruit.Position).Magnitude

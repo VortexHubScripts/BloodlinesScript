@@ -100,18 +100,25 @@ local function updatePlayerESP(player, esp)
                 local boxSize = Vector2.new(100 * scale, 130 * scale)
                 local boxPos = Vector2.new(vector.X - boxSize.X / 2, vector.Y - boxSize.Y / 2)
 
-                -- FIXED: Jutsu Prediction with improved data access
+                -- FIXED: Jutsu Prediction with improved positioning and visibility
                 if Settings.Show.JutsuPrediction then
                     -- Get jutsu data from global table
                     local jutsuDataTable = getgenv().PlayerJutsuData
                     local jutsuData = jutsuDataTable and jutsuDataTable[player.Name]
-                    
+
                     if jutsuData and jutsuData.activeJutsu and (tick() - jutsuData.lastUpdate) < 3 then
+                        -- Position ABOVE the name text with more spacing
+                        local jutsuYPos = boxPos.Y + Settings.TextPosition - 25
+
                         esp.JutsuText.Text = "[" .. jutsuData.activeJutsu .. "]"
-                        esp.JutsuText.Size = Settings.TextSize
-                        esp.JutsuText.Color = Color3.fromRGB(255, 255, 0)
-                        esp.JutsuText.Position = Vector2.new(vector.X, boxPos.Y + Settings.TextPosition - 20)
+                        esp.JutsuText.Size = Settings.TextSize + 2  -- Slightly larger
+                        esp.JutsuText.Color = Color3.fromRGB(255, 255, 0)  -- Bright yellow
+                        esp.JutsuText.Position = Vector2.new(vector.X, jutsuYPos)
+                        esp.JutsuText.Center = true
+                        esp.JutsuText.Outline = true
+                        esp.JutsuText.OutlineColor = Color3.fromRGB(0, 0, 0)
                         esp.JutsuText.Visible = true
+                        esp.JutsuText.ZIndex = 999  -- Ensure it's on top
                     else
                         esp.JutsuText.Visible = false
                     end

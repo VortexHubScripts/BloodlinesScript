@@ -64,24 +64,6 @@ local function getRarityColor(itemName)
     return rarityColors[itemName] or rarityColors.default
 end
 
-local function smoothTransition(drawing, property, targetValue, duration)
-    -- Smooth value transitions (for numeric properties)
-    local startValue = drawing[property]
-    local startTime = tick()
-    
-    return RunService.RenderStepped:Connect(function()
-        local elapsed = tick() - startTime
-        local progress = math.min(elapsed / duration, 1)
-        local easedProgress = 1 - (1 - progress)^3 -- Cubic ease out
-        
-        drawing[property] = startValue + (targetValue - startValue) * easedProgress
-        
-        if progress >= 1 then
-            return true -- Signal completion
-        end
-    end)
-end
-
 -- ============================================
 -- ENHANCED PLAYER ESP
 -- ============================================

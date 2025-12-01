@@ -25,10 +25,6 @@ local trackedMobs = {}
 local playerJutsuData = {}
 local jutsuConnections = {}
 
--- Animation cache
-local fadeInTween = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-local fadeOutTween = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-
 -- ============================================
 -- UTILITY FUNCTIONS
 -- ============================================

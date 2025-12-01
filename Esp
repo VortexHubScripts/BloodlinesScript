@@ -1,5 +1,5 @@
--- EnhancedESP.lua - Premium ESP System for Bloodlines
--- Improved visuals, animations, and customization
+-- ESPModule.lua - Modular ESP System for Bloodlines
+-- Upload this file to your GitHub repository
 
 local ESPModule = {}
 
@@ -8,7 +8,6 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local workspace = game:GetService("Workspace")
-local TweenService = game:GetService("TweenService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
@@ -25,10 +24,7 @@ local trackedMobs = {}
 local playerJutsuData = {}
 local jutsuConnections = {}
 
--- ============================================
--- UTILITY FUNCTIONS
--- ============================================
-
+-- Utility function
 local function createDrawing(class, properties)
     local obj = Drawing.new(class)
     for prop, val in pairs(properties) do
@@ -37,381 +33,162 @@ local function createDrawing(class, properties)
     return obj
 end
 
-local function getHealthColor(healthPercent)
-    if healthPercent > 0.75 then
-        return Color3.fromRGB(0, 255, 0)
-    elseif healthPercent > 0.5 then
-        return Color3.fromRGB(255, 255, 0)
-    elseif healthPercent > 0.25 then
-        return Color3.fromRGB(255, 165, 0)
-    else
-        return Color3.fromRGB(255, 0, 0)
-    end
-end
-
-local function getRarityColor(itemName)
-    -- Custom color coding for different item types
-    local rarityColors = {
-        -- Fruits
-        ["Life Up Fruit"] = Color3.fromRGB(255, 0, 127),
-        ["Chakra Fruit"] = Color3.fromRGB(0, 191, 255),
-        ["Fruit Of Forgiveness"] = Color3.fromRGB(218, 112, 214),
-        
-        -- Default
-        default = Color3.fromRGB(100, 255, 100)
-    }
-    
-    return rarityColors[itemName] or rarityColors.default
-end
-
 -- ============================================
--- ENHANCED PLAYER ESP
+-- PLAYER ESP
 -- ============================================
 
 local function createPlayerESP(player)
-    local settings = getgenv().ESPSettings
-    
     local esp = {
-        -- Main box with rounded corners effect
         Box = createDrawing("Square", {
-            Color = settings.BoxColor or Color3.fromRGB(255, 255, 255),
-            Thickness = settings.BoxThickness or 2,
+            Color = Color3.fromRGB(255, 255, 255),
+            Thickness = 2,
             Filled = false,
-            Visible = false,
-            Transparency = settings.BoxTransparency or 1
+            Visible = false
         }),
-        
-        -- Box corners for premium look
-        BoxCorners = {},
-        
-        -- Health bar background with padding
         HealthBarBack = createDrawing("Square", {
-            Color = Color3.fromRGB(20, 20, 20),
+            Color = Color3.fromRGB(0, 0, 0),
             Filled = true,
-            Visible = false,
-            Transparency = 0.8
+            Visible = false
         }),
-        
-        -- Animated health bar
         HealthBar = createDrawing("Square", {
             Color = Color3.fromRGB(0, 255, 0),
             Filled = true,
-            Visible = false,
-            Transparency = 0.9
+            Visible = false
         }),
-        
-        -- Health bar border
-        HealthBarBorder = createDrawing("Square", {
-            Color = Color3.fromRGB(255, 255, 255),
-            Thickness = 1,
-            Filled = false,
-            Visible = false,
-            Transparency = 0.5
-        }),
-        
-        -- Name text with shadow
         NameText = createDrawing("Text", {
             Color = Color3.fromRGB(255, 255, 255),
-            Size = settings.TextSize or 18,
+            Size = getgenv().ESPSettings.TextSize,
             Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
             Center = true,
-            Visible = false,
-            Transparency = 1
+            Visible = false
         }),
-        
-        -- Jutsu prediction with glow effect
         JutsuText = createDrawing("Text", {
             Color = Color3.fromRGB(255, 255, 0),
-            Size = (settings.TextSize or 18) + 2,
+            Size = getgenv().ESPSettings.TextSize,
             Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
             Center = true,
-            Visible = false,
-            Transparency = 1
-        }),
-        
-        -- Distance indicator
-        DistanceText = createDrawing("Text", {
-            Color = Color3.fromRGB(200, 200, 200),
-            Size = (settings.TextSize or 18) - 2,
-            Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
-            Center = true,
-            Visible = false,
-            Transparency = 0.8
-        }),
-        
-        -- Weapon indicator
-        WeaponText = createDrawing("Text", {
-            Color = Color3.fromRGB(255, 165, 0),
-            Size = (settings.TextSize or 18) - 2,
-            Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
-            Center = true,
-            Visible = false,
-            Transparency = 0.9
-        }),
-        
-        -- Tracking data
-        lastHealth = 100,
-        lastPosition = Vector2.new(0, 0),
-        fadeState = 0
+            Visible = false
+        })
     }
-    
-    -- Create box corners for premium look
-    if settings.ShowCorners then
-        for i = 1, 4 do
-            local corner = createDrawing("Line", {
-                Color = settings.BoxColor or Color3.fromRGB(255, 255, 255),
-                Thickness = 2,
-                Visible = false,
-                Transparency = 1
-            })
-            table.insert(esp.BoxCorners, corner)
-        end
-    end
-    
+
     ESPModule.ActivePlayerESP[player] = esp
     return esp
 end
 
 local function updatePlayerESP(player, esp)
-    local updateConnection
-    updateConnection = RunService.RenderStepped:Connect(function()
+    RunService.RenderStepped:Connect(function()
         local Settings = getgenv().ESPSettings
         if not Settings.Enabled then
-            -- Fade out
-            for _, item in pairs(esp) do 
-                if type(item) == "table" then
-                    for _, subItem in pairs(item) do
-                        subItem.Visible = false
-                    end
-                elseif item.Visible ~= nil then
-                    item.Visible = false
-                end
-            end
+            for _, item in pairs(esp) do item.Visible = false end
             return
         end
 
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
-        
-        if not (hrp and hum and hum.Health > 0) then
-            for _, item in pairs(esp) do 
-                if type(item) == "table" then
-                    for _, subItem in pairs(item) do
-                        subItem.Visible = false
+        local bloodlineFolder = ReplicatedStorage:FindFirstChild("Settings")
+        local playerFolder = bloodlineFolder and bloodlineFolder:FindFirstChild(player.Name)
+        local bloodline = playerFolder and playerFolder:FindFirstChild("Bloodline")
+        local bloodlineName = bloodline and bloodline.Value or "Unknown"
+
+        if hrp and hum and hum.Health > 0 then
+            local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
+
+                local scale = 1 / (vector.Z * 0.002) * Settings.BoxSizeMultiplier
+                local boxSize = Vector2.new(100 * scale, 130 * scale)
+                local boxPos = Vector2.new(vector.X - boxSize.X / 2, vector.Y - boxSize.Y / 2)
+
+                -- FIXED: Jutsu Prediction with improved positioning and visibility
+                if Settings.Show.JutsuPrediction then
+                    -- Get jutsu data from global table
+                    local jutsuDataTable = getgenv().PlayerJutsuData
+                    local jutsuData = jutsuDataTable and jutsuDataTable[player.Name]
+
+                    if jutsuData and jutsuData.activeJutsu and (tick() - jutsuData.lastUpdate) < 3 then
+                        -- Position ABOVE the name text with more spacing
+                        local jutsuYPos = boxPos.Y + Settings.TextPosition - 25
+
+                        esp.JutsuText.Text = "[" .. jutsuData.activeJutsu .. "]"
+                        esp.JutsuText.Size = Settings.TextSize + 2  -- Slightly larger
+                        esp.JutsuText.Color = Color3.fromRGB(255, 255, 0)  -- Bright yellow
+                        esp.JutsuText.Position = Vector2.new(vector.X, jutsuYPos)
+                        esp.JutsuText.Center = true
+                        esp.JutsuText.Outline = true
+                        esp.JutsuText.OutlineColor = Color3.fromRGB(0, 0, 0)
+                        esp.JutsuText.Visible = true
+                        esp.JutsuText.ZIndex = 999  -- Ensure it's on top
+                    else
+                        esp.JutsuText.Visible = false
                     end
-                elseif item.Visible ~= nil then
-                    item.Visible = false
+                else
+                    esp.JutsuText.Visible = false
                 end
-            end
-            return
-        end
 
-        local vector, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-        
-        if not onScreen then
-            for _, item in pairs(esp) do 
-                if type(item) == "table" then
-                    for _, subItem in pairs(item) do
-                        subItem.Visible = false
+                local info = {}
+                if Settings.Show.Name then table.insert(info, "[" .. player.Name .. "]") end
+                if Settings.Show.Health then table.insert(info, string.format("[%d/%d]", math.floor(hum.Health), math.floor(hum.MaxHealth))) end
+                if Settings.Show.Distance then table.insert(info, string.format("[%dm]", math.floor(distance))) end
+                if Settings.Show.Clan then table.insert(info, "[" .. bloodlineName .. "]") end
+                
+                -- Freshy Checker
+                if Settings.Show.FreshyChecker then
+                    local humanoidDisplayName = hum and hum.DisplayName or ""
+                    local isFreshy = string.find(player.Name, "🌱") ~= nil or string.find(humanoidDisplayName, "🌱") ~= nil
+                    if isFreshy then
+                        table.insert(info, "[FRESHY]")
                     end
-                elseif item.Visible ~= nil then
-                    item.Visible = false
                 end
-            end
-            return
-        end
 
-        local distance = (Camera.CFrame.Position - hrp.Position).Magnitude
-        
-        if distance > Settings.MaxDistance then
-            for _, item in pairs(esp) do 
-                if type(item) == "table" then
-                    for _, subItem in pairs(item) do
-                        subItem.Visible = false
-                    end
-                elseif item.Visible ~= nil then
-                    item.Visible = false
+                esp.NameText.Text = table.concat(info, " ")
+                esp.NameText.Size = Settings.TextSize
+                esp.NameText.Position = Vector2.new(vector.X, boxPos.Y + Settings.TextPosition)
+                esp.NameText.Visible = true
+
+                if distance <= Settings.MaxDistance then
+                    esp.Box.Size = boxSize
+                    esp.Box.Position = boxPos
+                    esp.Box.Visible = true
+
+                    local healthPercent = hum.Health / hum.MaxHealth
+                    local barHeight = boxSize.Y
+                    local barX = boxPos.X - (Settings.HealthBarWidth + 2)
+                    local barY = boxPos.Y
+
+                    esp.HealthBarBack.Size = Vector2.new(Settings.HealthBarWidth, barHeight)
+                    esp.HealthBarBack.Position = Vector2.new(barX, barY)
+                    esp.HealthBarBack.Visible = true
+
+                    local barColor = Color3.fromRGB(255 * (1 - healthPercent), 255 * healthPercent, 0)
+                    esp.HealthBar.Color = barColor
+                    esp.HealthBar.Size = Vector2.new(Settings.HealthBarWidth, barHeight * healthPercent)
+                    esp.HealthBar.Position = Vector2.new(barX, barY + (barHeight * (1 - healthPercent)))
+                    esp.HealthBar.Visible = true
+                else
+                    esp.Box.Visible = false
+                    esp.HealthBar.Visible = false
+                    esp.HealthBarBack.Visible = false
                 end
-            end
-            return
-        end
-
-        -- Calculate box dimensions with improved scaling
-        local scale = 1 / (vector.Z * 0.002) * (Settings.BoxSizeMultiplier or 0.1)
-        local boxSize = Vector2.new(100 * scale, 130 * scale)
-        local boxPos = Vector2.new(vector.X - boxSize.X / 2, vector.Y - boxSize.Y / 2)
-
-        -- Draw main box
-        esp.Box.Size = boxSize
-        esp.Box.Position = boxPos
-        esp.Box.Color = Settings.BoxColor or Color3.fromRGB(255, 255, 255)
-        esp.Box.Thickness = Settings.BoxThickness or 2
-        esp.Box.Transparency = Settings.BoxTransparency or 1
-        esp.Box.Visible = Settings.ShowBox ~= false
-
-        -- Draw box corners for premium look
-        if Settings.ShowCorners and esp.BoxCorners and #esp.BoxCorners == 4 then
-            local cornerLength = math.min(boxSize.X, boxSize.Y) * 0.2
-            
-            -- Top-left
-            esp.BoxCorners[1].From = boxPos
-            esp.BoxCorners[1].To = Vector2.new(boxPos.X + cornerLength, boxPos.Y)
-            esp.BoxCorners[1].Visible = true
-            
-            -- Top-right
-            esp.BoxCorners[2].From = Vector2.new(boxPos.X + boxSize.X, boxPos.Y)
-            esp.BoxCorners[2].To = Vector2.new(boxPos.X + boxSize.X - cornerLength, boxPos.Y)
-            esp.BoxCorners[2].Visible = true
-            
-            -- Bottom-left
-            esp.BoxCorners[3].From = Vector2.new(boxPos.X, boxPos.Y + boxSize.Y)
-            esp.BoxCorners[3].To = Vector2.new(boxPos.X + cornerLength, boxPos.Y + boxSize.Y)
-            esp.BoxCorners[3].Visible = true
-            
-            -- Bottom-right
-            esp.BoxCorners[4].From = Vector2.new(boxPos.X + boxSize.X, boxPos.Y + boxSize.Y)
-            esp.BoxCorners[4].To = Vector2.new(boxPos.X + boxSize.X - cornerLength, boxPos.Y + boxSize.Y)
-            esp.BoxCorners[4].Visible = true
-        end
-
-        -- Enhanced health bar with animation
-        local healthPercent = hum.Health / hum.MaxHealth
-        local barHeight = boxSize.Y
-        local barX = boxPos.X - ((Settings.HealthBarWidth or 5) + 4)
-        local barY = boxPos.Y
-
-        -- Health bar background
-        esp.HealthBarBack.Size = Vector2.new(Settings.HealthBarWidth or 5, barHeight)
-        esp.HealthBarBack.Position = Vector2.new(barX, barY)
-        esp.HealthBarBack.Visible = Settings.ShowHealthBar ~= false
-
-        -- Animated health bar with color transition
-        local targetHeight = barHeight * healthPercent
-        local barColor = getHealthColor(healthPercent)
-        
-        esp.HealthBar.Color = barColor
-        esp.HealthBar.Size = Vector2.new(Settings.HealthBarWidth or 5, targetHeight)
-        esp.HealthBar.Position = Vector2.new(barX, barY + (barHeight - targetHeight))
-        esp.HealthBar.Visible = Settings.ShowHealthBar ~= false
-
-        -- Health bar border
-        esp.HealthBarBorder.Size = Vector2.new(Settings.HealthBarWidth or 5, barHeight)
-        esp.HealthBarBorder.Position = Vector2.new(barX, barY)
-        esp.HealthBarBorder.Visible = Settings.ShowHealthBar ~= false
-
-        -- Jutsu Prediction with enhanced visibility
-        if Settings.Show and Settings.Show.JutsuPrediction then
-            local jutsuDataTable = getgenv().PlayerJutsuData
-            local jutsuData = jutsuDataTable and jutsuDataTable[player.Name]
-
-            if jutsuData and jutsuData.activeJutsu and (tick() - jutsuData.lastUpdate) < 3 then
-                local jutsuYPos = boxPos.Y + (Settings.TextPosition or -20) - 30
-
-                esp.JutsuText.Text = "⚡ " .. jutsuData.activeJutsu .. " ⚡"
-                esp.JutsuText.Size = (Settings.TextSize or 18) + 3
-                esp.JutsuText.Color = Color3.fromRGB(255, 255, 0)
-                esp.JutsuText.Position = Vector2.new(vector.X, jutsuYPos)
-                esp.JutsuText.Visible = true
             else
-                esp.JutsuText.Visible = false
+                for _, item in pairs(esp) do item.Visible = false end
             end
         else
-            esp.JutsuText.Visible = false
-        end
-
-        -- Build information text with better formatting
-        local info = {}
-        
-        if Settings.Show and Settings.Show.Name then 
-            table.insert(info, player.Name) 
-        end
-        
-        if Settings.Show and Settings.Show.Clan then
-            local bloodlineFolder = ReplicatedStorage:FindFirstChild("Settings")
-            local playerFolder = bloodlineFolder and bloodlineFolder:FindFirstChild(player.Name)
-            local bloodline = playerFolder and playerFolder:FindFirstChild("Bloodline")
-            local bloodlineName = bloodline and bloodline.Value
-            if bloodlineName and bloodlineName ~= "" then
-                table.insert(info, "[" .. bloodlineName .. "]")
-            end
-        end
-        
-        if Settings.Show and Settings.Show.Health then 
-            local healthColor = healthPercent > 0.5 and "🟢" or healthPercent > 0.25 and "🟡" or "🔴"
-            table.insert(info, string.format("%s %d/%d HP", healthColor, math.floor(hum.Health), math.floor(hum.MaxHealth))) 
-        end
-        
-        -- Freshy Checker with emoji
-        if Settings.Show and Settings.Show.FreshyChecker then
-            local humanoidDisplayName = hum and hum.DisplayName or ""
-            local isFreshy = string.find(player.Name, "🌱") ~= nil or string.find(humanoidDisplayName, "🌱") ~= nil
-            if isFreshy then
-                table.insert(info, "🌱 FRESHY")
-            end
-        end
-
-        -- Name text with improved formatting
-        esp.NameText.Text = table.concat(info, " • ")
-        esp.NameText.Size = Settings.TextSize or 18
-        esp.NameText.Position = Vector2.new(vector.X, boxPos.Y + (Settings.TextPosition or -20))
-        esp.NameText.Color = Settings.NameColor or Color3.fromRGB(255, 255, 255)
-        esp.NameText.Visible = true
-
-        -- Distance indicator at bottom
-        if Settings.Show and Settings.Show.Distance then
-            esp.DistanceText.Text = string.format("📍 %dm", math.floor(distance))
-            esp.DistanceText.Size = (Settings.TextSize or 18) - 2
-            esp.DistanceText.Position = Vector2.new(vector.X, boxPos.Y + boxSize.Y + 5)
-            esp.DistanceText.Visible = true
-        else
-            esp.DistanceText.Visible = false
-        end
-
-        -- Weapon indicator
-        if Settings.Show and Settings.Show.Weapon then
-            local settingsFolder = ReplicatedStorage:FindFirstChild("Settings")
-            local playerSettings = settingsFolder and settingsFolder:FindFirstChild(player.Name)
-            local currentWeapon = playerSettings and playerSettings:FindFirstChild("CurrentWeapon")
-            
-            if currentWeapon and currentWeapon.Value ~= "Fist" and currentWeapon.Value ~= "" then
-                esp.WeaponText.Text = "⚔️ " .. currentWeapon.Value
-                esp.WeaponText.Size = (Settings.TextSize or 18) - 2
-                esp.WeaponText.Position = Vector2.new(vector.X, boxPos.Y + boxSize.Y + 20)
-                esp.WeaponText.Visible = true
-            else
-                esp.WeaponText.Visible = false
-            end
-        else
-            esp.WeaponText.Visible = false
+            for _, item in pairs(esp) do item.Visible = false end
         end
     end)
 end
 
 -- ============================================
--- ENHANCED MOB ESP
+-- MOB ESP
 -- ============================================
 
 local function createMobESP(mob)
     local esp = {
         NameText = createDrawing("Text", {
             Color = Color3.fromRGB(255, 100, 100),
-            Size = getgenv().MobESPSettings.TextSize or 18,
+            Size = getgenv().MobESPSettings.TextSize,
             Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
-            Center = true,
-            Visible = false
-        }),
-        
-        HealthText = createDrawing("Text", {
-            Color = Color3.fromRGB(0, 255, 0),
-            Size = (getgenv().MobESPSettings.TextSize or 18) - 2,
-            Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
             Center = true,
             Visible = false
         })
@@ -427,7 +204,6 @@ local function updateMobESP(mob, esp)
         local Settings = getgenv().MobESPSettings
         if not Settings.Enabled or not mob or not mob.Parent then
             esp.NameText.Visible = false
-            esp.HealthText.Visible = false
             if not mob or not mob.Parent then
                 connection:Disconnect()
             end
@@ -437,56 +213,33 @@ local function updateMobESP(mob, esp)
         local rootPart = mob:FindFirstChild("HumanoidRootPart") or mob:FindFirstChild("Main")
         local hum = mob:FindFirstChildOfClass("Humanoid")
 
-        if not (rootPart and hum and hum.Health > 0) then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            return
-        end
+        if rootPart and hum and hum.Health > 0 then
+            local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
 
-        local vector, onScreen = Camera:WorldToViewportPoint(rootPart.Position)
-        
-        if not onScreen then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            return
-        end
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then table.insert(info, "[" .. mob.Name .. "]") end
+                    if Settings.Show.Health and hum then
+                        table.insert(info, string.format("[%d/%d]", math.floor(hum.Health), math.floor(hum.MaxHealth)))
+                    end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
 
-        local distance = (Camera.CFrame.Position - rootPart.Position).Magnitude
-
-        if distance > Settings.MaxDistance then
-            esp.NameText.Visible = false
-            esp.HealthText.Visible = false
-            return
-        end
-
-        -- Name with emoji indicator
-        if Settings.Show and Settings.Show.Name then
-            esp.NameText.Text = "👹 " .. mob.Name
-            esp.NameText.Size = Settings.TextSize or 18
-            esp.NameText.Position = Vector2.new(vector.X, vector.Y - 15)
-            esp.NameText.Visible = true
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
         else
             esp.NameText.Visible = false
-        end
-
-        -- Health with color coding
-        if Settings.Show and Settings.Show.Health then
-            local healthPercent = hum.Health / hum.MaxHealth
-            local healthColor = getHealthColor(healthPercent)
-            
-            esp.HealthText.Text = string.format("%d/%d HP", math.floor(hum.Health), math.floor(hum.MaxHealth))
-            esp.HealthText.Color = healthColor
-            esp.HealthText.Size = (Settings.TextSize or 18) - 2
-            esp.HealthText.Position = Vector2.new(vector.X, vector.Y)
-            esp.HealthText.Visible = true
-        else
-            esp.HealthText.Visible = false
-        end
-
-        -- Distance indicator
-        if Settings.Show and Settings.Show.Distance then
-            local distanceText = string.format(" [%dm]", math.floor(distance))
-            esp.NameText.Text = esp.NameText.Text .. distanceText
         end
     end)
 end
@@ -528,25 +281,15 @@ local function setupMobESP(model)
 end
 
 -- ============================================
--- ENHANCED ITEM ESP
+-- ITEM ESP
 -- ============================================
 
 local function createItemESP(item)
     local esp = {
         NameText = createDrawing("Text", {
             Color = Color3.fromRGB(100, 255, 100),
-            Size = getgenv().ItemESPSettings.TextSize or 18,
+            Size = getgenv().ItemESPSettings.TextSize,
             Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
-            Center = true,
-            Visible = false
-        }),
-        
-        IconText = createDrawing("Text", {
-            Color = Color3.fromRGB(255, 215, 0),
-            Size = (getgenv().ItemESPSettings.TextSize or 18) + 4,
-            Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
             Center = true,
             Visible = false
         })
@@ -562,59 +305,42 @@ local function updateItemESP(item, esp)
         local Settings = getgenv().ItemESPSettings
         if not Settings.Enabled or not item or not item.Parent then
             esp.NameText.Visible = false
-            esp.IconText.Visible = false
             if not item or not item.Parent then
                 connection:Disconnect()
             end
             return
         end
 
-        if not item:IsA("BasePart") then
+        if item:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(item.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - item.Position).Magnitude
+
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then table.insert(info, "[" .. item.Name .. "]") end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
+
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
+        else
             esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            return
         end
-
-        local vector, onScreen = Camera:WorldToViewportPoint(item.Position)
-        
-        if not onScreen then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            return
-        end
-
-        local distance = (Camera.CFrame.Position - item.Position).Magnitude
-
-        if distance > Settings.MaxDistance then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            return
-        end
-
-        -- Icon above item
-        esp.IconText.Text = "💎"
-        esp.IconText.Size = (Settings.TextSize or 18) + 4
-        esp.IconText.Position = Vector2.new(vector.X, vector.Y - 20)
-        esp.IconText.Visible = Settings.ShowIcon ~= false
-
-        -- Item name and distance
-        local info = {}
-        if Settings.Show and Settings.Show.Name then 
-            table.insert(info, item.Name) 
-        end
-        if Settings.Show and Settings.Show.Distance then
-            table.insert(info, string.format("[%dm]", math.floor(distance)))
-        end
-
-        esp.NameText.Text = table.concat(info, " ")
-        esp.NameText.Size = Settings.TextSize or 18
-        esp.NameText.Position = Vector2.new(vector.X, vector.Y)
-        esp.NameText.Visible = true
     end)
 end
 
 -- ============================================
--- ENHANCED FRUIT ESP
+-- FRUIT ESP
 -- ============================================
 
 local FRUIT_NAMES = {
@@ -633,34 +359,13 @@ local function isTargetFruit(item)
 end
 
 local function createFruitESP(fruit)
-    local color = getRarityColor(fruit.Name)
-    
     local esp = {
         NameText = createDrawing("Text", {
-            Color = color,
-            Size = getgenv().FruitESPSettings.TextSize or 18,
+            Color = Color3.fromRGB(255, 0, 0),
+            Size = getgenv().FruitESPSettings.TextSize,
             Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
             Center = true,
             Visible = false
-        }),
-        
-        IconText = createDrawing("Text", {
-            Color = color,
-            Size = (getgenv().FruitESPSettings.TextSize or 18) + 6,
-            Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
-            Center = true,
-            Visible = false
-        }),
-        
-        GlowCircle = createDrawing("Circle", {
-            Color = color,
-            Thickness = 2,
-            Filled = false,
-            Visible = false,
-            Transparency = 0.6,
-            NumSides = 32
         })
     }
 
@@ -674,96 +379,52 @@ local function updateFruitESP(fruit, esp)
         local Settings = getgenv().FruitESPSettings
         if not Settings.Enabled or not fruit or not fruit.Parent then
             esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            esp.GlowCircle.Visible = false
             if not fruit or not fruit.Parent then
                 connection:Disconnect()
             end
             return
         end
 
-        if not fruit:IsA("BasePart") then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            esp.GlowCircle.Visible = false
-            return
-        end
+        if fruit:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(fruit.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - fruit.Position).Magnitude
 
-        local vector, onScreen = Camera:WorldToViewportPoint(fruit.Position)
-        
-        if not onScreen then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            esp.GlowCircle.Visible = false
-            return
-        end
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then 
+                        table.insert(info, "[Possible " .. fruit.Name .. "]") 
+                    end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
 
-        local distance = (Camera.CFrame.Position - fruit.Position).Magnitude
-
-        if distance > Settings.MaxDistance then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            esp.GlowCircle.Visible = false
-            return
-        end
-
-        local color = getRarityColor(fruit.Name)
-
-        -- Animated glow circle
-        if Settings.ShowGlow ~= false then
-            local pulseSize = 20 + math.sin(tick() * 2) * 5
-            esp.GlowCircle.Position = Vector2.new(vector.X, vector.Y)
-            esp.GlowCircle.Radius = pulseSize
-            esp.GlowCircle.Color = color
-            esp.GlowCircle.Visible = true
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
         else
-            esp.GlowCircle.Visible = false
+            esp.NameText.Visible = false
         end
-
-        -- Icon
-        esp.IconText.Text = "🍎"
-        esp.IconText.Size = (Settings.TextSize or 18) + 6
-        esp.IconText.Color = color
-        esp.IconText.Position = Vector2.new(vector.X, vector.Y - 25)
-        esp.IconText.Visible = Settings.ShowIcon ~= false
-
-        -- Fruit name and distance
-        local info = {}
-        if Settings.Show and Settings.Show.Name then 
-            table.insert(info, fruit.Name) 
-        end
-        if Settings.Show and Settings.Show.Distance then
-            table.insert(info, string.format("[%dm]", math.floor(distance)))
-        end
-
-        esp.NameText.Text = table.concat(info, " ")
-        esp.NameText.Size = Settings.TextSize or 18
-        esp.NameText.Color = color
-        esp.NameText.Position = Vector2.new(vector.X, vector.Y)
-        esp.NameText.Visible = true
     end)
 end
 
 -- ============================================
--- ENHANCED PUMPKIN ESP
+-- PUMPKIN ESP
 -- ============================================
 
 local function createPumpkinESP(pumpkin)
     local esp = {
         NameText = createDrawing("Text", {
             Color = Color3.fromRGB(255, 165, 0),
-            Size = getgenv().PumpkinESPSettings.TextSize or 18,
+            Size = getgenv().PumpkinESPSettings.TextSize,
             Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
-            Center = true,
-            Visible = false
-        }),
-        
-        IconText = createDrawing("Text", {
-            Color = Color3.fromRGB(255, 140, 0),
-            Size = (getgenv().PumpkinESPSettings.TextSize or 18) + 6,
-            Outline = true,
-            OutlineColor = Color3.fromRGB(0, 0, 0),
             Center = true,
             Visible = false
         })
@@ -779,7 +440,6 @@ local function updatePumpkinESP(pumpkin, esp)
         local Settings = getgenv().PumpkinESPSettings
         if not Settings.Enabled or not pumpkin or not pumpkin.Parent then
             esp.NameText.Visible = false
-            esp.IconText.Visible = false
             if not pumpkin or not pumpkin.Parent then
                 connection:Disconnect()
             end
@@ -787,55 +447,40 @@ local function updatePumpkinESP(pumpkin, esp)
         end
 
         local mainPart = pumpkin:FindFirstChild("Main")
-        if not (mainPart and mainPart:IsA("BasePart")) then
+        if mainPart and mainPart:IsA("BasePart") then
+            local vector, onScreen = Camera:WorldToViewportPoint(mainPart.Position)
+            if onScreen then
+                local distance = (Camera.CFrame.Position - mainPart.Position).Magnitude
+
+                if distance <= Settings.MaxDistance then
+                    local info = {}
+                    if Settings.Show.Name then table.insert(info, "[" .. pumpkin.Name .. "]") end
+                    if Settings.Show.Distance then
+                        table.insert(info, string.format("[%dm]", math.floor(distance)))
+                    end
+
+                    esp.NameText.Text = table.concat(info, " ")
+                    esp.NameText.Size = Settings.TextSize
+                    esp.NameText.Position = Vector2.new(vector.X, vector.Y)
+                    esp.NameText.Visible = true
+                else
+                    esp.NameText.Visible = false
+                end
+            else
+                esp.NameText.Visible = false
+            end
+        else
             esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            return
         end
-
-        local vector, onScreen = Camera:WorldToViewportPoint(mainPart.Position)
-        
-        if not onScreen then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            return
-        end
-
-        local distance = (Camera.CFrame.Position - mainPart.Position).Magnitude
-
-        if distance > Settings.MaxDistance then
-            esp.NameText.Visible = false
-            esp.IconText.Visible = false
-            return
-        end
-
-        -- Pumpkin icon
-        esp.IconText.Text = "🎃"
-        esp.IconText.Size = (Settings.TextSize or 18) + 6
-        esp.IconText.Position = Vector2.new(vector.X, vector.Y - 25)
-        esp.IconText.Visible = Settings.ShowIcon ~= false
-
-        -- Pumpkin name and distance
-        local info = {}
-        if Settings.Show and Settings.Show.Name then 
-            table.insert(info, pumpkin.Name) 
-        end
-        if Settings.Show and Settings.Show.Distance then
-            table.insert(info, string.format("[%dm]", math.floor(distance)))
-        end
-
-        esp.NameText.Text = table.concat(info, " ")
-        esp.NameText.Size = Settings.TextSize or 18
-        esp.NameText.Position = Vector2.new(vector.X, vector.Y)
-        esp.NameText.Visible = true
     end)
 end
 
 -- ============================================
--- INITIALIZATION FUNCTIONS (Same as before)
+-- INITIALIZATION FUNCTIONS
 -- ============================================
 
 function ESPModule.InitPlayerESP()
+    -- Setup for existing players
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local esp = createPlayerESP(player)
@@ -843,6 +488,7 @@ function ESPModule.InitPlayerESP()
         end
     end
 
+    -- Setup for new players
     Players.PlayerAdded:Connect(function(player)
         if player ~= LocalPlayer then
             local esp = createPlayerESP(player)
@@ -850,16 +496,11 @@ function ESPModule.InitPlayerESP()
         end
     end)
 
+    -- Cleanup when players leave
     Players.PlayerRemoving:Connect(function(player)
         if ESPModule.ActivePlayerESP[player] then
             for _, item in pairs(ESPModule.ActivePlayerESP[player]) do
-                if type(item) == "table" then
-                    for _, subItem in pairs(item) do
-                        if subItem.Remove then subItem:Remove() end
-                    end
-                elseif item.Remove then
-                    item:Remove()
-                end
+                if item.Remove then item:Remove() end
             end
             ESPModule.ActivePlayerESP[player] = nil
         end
@@ -867,12 +508,14 @@ function ESPModule.InitPlayerESP()
 end
 
 function ESPModule.InitMobESP()
+    -- Scan existing mobs
     for _, child in pairs(workspace:GetChildren()) do
         if child:IsA("Model") then
             setupMobESP(child)
         end
     end
     
+    -- Monitor for new mobs
     workspace.ChildAdded:Connect(function(child)
         if child:IsA("Model") then
             task.wait(0.05)
@@ -880,6 +523,7 @@ function ESPModule.InitMobESP()
         end
     end)
     
+    -- Monitor humanoid additions
     workspace.DescendantAdded:Connect(function(descendant)
         if descendant:IsA("Humanoid") then
             local model = descendant.Parent
@@ -894,6 +538,7 @@ function ESPModule.InitMobESP()
         end
     end)
     
+    -- Continuous scanning
     task.spawn(function()
         while true do
             for _, child in pairs(workspace:GetChildren()) do
@@ -958,6 +603,7 @@ function ESPModule.InitFruitESP()
         end
     end
 
+    -- Scan ReplicatedStorage
     for _, descendant in pairs(ReplicatedStorage:GetDescendants()) do
         if descendant:IsA("BasePart") and isTargetFruit(descendant) then
             task.spawn(onFruitAdded, descendant)
@@ -996,16 +642,15 @@ function ESPModule.InitPumpkinESP()
     workspace.ChildAdded:Connect(onPumpkinAdded)
 end
 
+-- ============================================
+-- CLEANUP FUNCTION
+-- ============================================
+
 function ESPModule.Cleanup()
+    -- Clean up all ESP
     for _, obj in pairs(ESPModule.ActivePlayerESP or {}) do
         for _, item in pairs(obj) do
-            if type(item) == "table" then
-                for _, subItem in pairs(item) do
-                    if subItem.Remove then subItem:Remove() end
-                end
-            elseif item.Remove then
-                item:Remove()
-            end
+            if item.Remove then item:Remove() end
         end
     end
     ESPModule.ActivePlayerESP = {}
